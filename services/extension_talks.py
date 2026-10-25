@@ -41,11 +41,16 @@ import hashlib
 import json
 import logging
 import math
+import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 _LOGGER = logging.getLogger(__name__)
+# One offer at a time per process: two offers at once (a double click, two
+# tabs, an owner's offer during the CPU pass) must not both read the same
+# state and lose a patience point.
+_LOCK = threading.RLock()
 
 FILENAME = "extension_talks.json"
 RULE_ID = "contract_talks"
@@ -59,8 +64,14 @@ OPENING_RATIO = {"easy": 1.08, "normal": 1.15, "hard": 1.22}
 PATIENCE = {"easy": 6, "normal": 4, "hard": 3}
 SHUTDOWN_BASE_DAYS = {"easy": 7, "normal": 10, "hard": 14}
 SHUTDOWN_MAX_DAYS = 30
-# Each counter moves his ask this share of the way down to his minimum.
+# Each counter moves his ask about this share of the way down to his
+# minimum (varied per player and offer, see :func:`_step`, so two asks in a
+# row do not give his minimum away).
 ASK_STEP = 0.40
+ASK_STEP_SPREAD = 0.12
+# His opening ask varies by up to this share either side of his
+# temperament's figure, so the ask does not reveal the minimum either.
+OPENING_SPREAD = 0.04
 # An offer under this share of his minimum is a lowball.
 LOWBALL_RATIO = 0.80
 # An offer at or above this multiple of his fair price is always accepted.
@@ -103,6 +114,15 @@ def _unit(*parts: object) -> float:
 
     digest = hashlib.sha256("|".join(str(p) for p in parts).encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big") / 2**64
+
+
+def _opening_ratio(player_id: str, kind: str) -> float:
+    spread = (2 * _unit(player_id, "opening") - 1) * OPENING_SPREAD
+    return OPENING_RATIO[kind] + spread
+
+
+def _step(player_id: str, offers: int) -> float:
+    return ASK_STEP + (2 * _unit(player_id, offers, "step") - 1) * ASK_STEP_SPREAD
 
 
 def temperament(player_id: str) -> str:
@@ -224,7 +244,7 @@ def _entry(state: Dict[str, Dict[str, Any]], player_id: str, team_id: str,
         entry = {
             "team_id": team_id,
             "season": season,
-            "ask_ratio": OPENING_RATIO[kind],
+            "ask_ratio": _opening_ratio(player_id, kind),
             "patience": PATIENCE[kind],
             "offers": 0,
             "lowballs": 0,
@@ -382,10 +402,13 @@ def talks_view(player: object, player_id: str, *, team_id: str, years: int,
         status = "refuses"
     elif left is not None:
         status = "shutdown"
+    elif entry.get("shutdown"):
+        # Over: his next offer restores his patience, so read it as full.
+        entry = {**entry, "patience": PATIENCE[temperament(player_id)]}
+    # No temperament here: with his ask it would give his minimum away.
     return {
         "ask_salary": max(_round_money(fair * float(entry["ask_ratio"])), 800_000),
         "preferred_years": fair_market_years(player, service_time_days=service_time_days),
-        "temperament": temperament(player_id),
         "mood": _mood(entry, player_id),
         "status": status,
         "shutdown_left": left,
@@ -404,6 +427,19 @@ def respond_to_offer(player: object, player_id: str, *, team_id: str, years: int
     ``salary`` a year from ``team_id``. With ``commit`` the talks state is
     saved (an accepted offer clears it); the caller writes the contract."""
 
+    with _LOCK:
+        return _respond(player, player_id, team_id=team_id, years=years,
+                        salary=salary, service_time_days=service_time_days,
+                        current_annual_salary=current_annual_salary,
+                        current_years_left=current_years_left, phase=phase,
+                        data_dir=data_dir, commit=commit, notify_owner=notify_owner)
+
+
+def _respond(player: object, player_id: str, *, team_id: str, years: int,
+             salary: int, service_time_days: int, current_annual_salary: int,
+             current_years_left: int, phase: Optional[str],
+             data_dir: Path | str | None, commit: bool,
+             notify_owner: bool) -> TalksResponse:
     from services.contract_negotiator import _service_tier, fair_market_years
 
     base = _data_dir(data_dir)
@@ -418,7 +454,9 @@ def respond_to_offer(player: object, player_id: str, *, team_id: str, years: int
                       current_annual_salary=current_annual_salary,
                       current_years_left=current_years_left)
     preferred = fair_market_years(player, service_time_days=service_time_days)
-    minimum = fair * MINIMUM_RATIO[kind]
+    # Never below his current salary: the extension replaces it for the
+    # rest of his deal too, so taking less would be a pay cut from today.
+    minimum = max(fair * MINIMUM_RATIO[kind], float(current_annual_salary or 0))
     now = talks_clock(base)
 
     def ask() -> int:
@@ -483,7 +521,8 @@ def respond_to_offer(player: object, player_id: str, *, team_id: str, years: int
         entry["lowballs"] = int(entry.get("lowballs") or 0) + 1
     else:
         ratio = float(entry["ask_ratio"])
-        entry["ask_ratio"] = MINIMUM_RATIO[kind] + (ratio - MINIMUM_RATIO[kind]) * (1 - ASK_STEP)
+        step = _step(player_id, int(entry["offers"]))
+        entry["ask_ratio"] = MINIMUM_RATIO[kind] + (ratio - MINIMUM_RATIO[kind]) * (1 - step)
 
     if entry["patience"] <= 0:
         gap = max(0.0, 1.0 - salary / max(1.0, minimum))

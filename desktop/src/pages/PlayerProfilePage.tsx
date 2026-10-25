@@ -983,7 +983,7 @@ function ContractCard({
       queryClient.invalidateQueries({ queryKey: ["team-roster"] });
       toast.success(`${playerName} accepted the extension`, {
         description: `+${agreedYears} year${agreedYears === 1 ? "" : "s"}${
-          agreedSalary ? ` at $${agreedSalary.toLocaleString()}/yr` : " at market value"
+          agreedSalary ? ` at $${agreedSalary.toLocaleString()}/yr` : " at his ask"
         }.`,
       });
       void data;
@@ -1017,9 +1017,12 @@ function ContractCard({
 
   function offerHisAsk() {
     if (!response) return;
-    setSalary(String(response.ask_salary));
-    if (response.counter_years != null) {
+    if (response.counter_years != null && String(response.counter_years) !== years) {
+      // A different length has a different ask: blank offers his ask for it.
       setYears(String(response.counter_years));
+      setSalary("");
+    } else {
+      setSalary(String(response.ask_salary));
     }
     setResponse(null);
   }
@@ -1222,10 +1225,10 @@ function ContractCard({
                       onClick={offerHisAsk}
                       className="mt-2 inline-flex items-center gap-1 rounded border border-amber/60 bg-amber/20 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-amber-text hover:bg-amber/30"
                     >
-                      Offer his ask: ${response.ask_salary.toLocaleString()}/yr
-                      {response.counter_years != null
-                        ? ` × ${response.counter_years} yrs`
-                        : ""}
+                      {response.counter_years != null &&
+                      String(response.counter_years) !== years
+                        ? `Switch to ${response.counter_years} years (see his ask)`
+                        : `Offer his ask: $${response.ask_salary.toLocaleString()}/yr`}
                     </button>
                   )}
                 </div>

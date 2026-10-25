@@ -208,6 +208,11 @@ def _run(played_date: str, *, phase: Optional[str], data_dir: Path | str | None,
         if club and club.upper() not in owners:
             by_club.setdefault(club, []).append(str(pid))
 
+    # Mark the window first: a pass that fails part-way must not rerun every
+    # day and spend the same players' patience again.
+    state["last_window"] = window
+    _save_state(base, state)
+
     extended: List[Dict[str, Any]] = []
     talks = 0
     for club in sorted(by_club):
@@ -265,9 +270,16 @@ def _run(played_date: str, *, phase: Optional[str], data_dir: Path | str | None,
                     break
                 if answer.mood == "about to walk away":
                     break
-                if answer.counter_years:
+                if answer.counter_years and answer.counter_years != years:
                     years = answer.counter_years
-                offer = _money((offer + answer.ask_salary) / 2)
+                    fair = fair_price(player, years=years, service_time_days=service,
+                                      current_annual_salary=current,
+                                      current_years_left=years_left)
+                    top = ceiling(fair, strategy=strategy, ai_level=ai_level,
+                                  quality=quality, current_salary=current,
+                                  payroll_room=room)
+                # Always a real step up, never the same offer again.
+                offer = max(offer + 50_000, _money((offer + answer.ask_salary) / 2))
             if signed is None:
                 continue
             if extend_contract(pid, additional_years=years, annual_salary=signed,
@@ -278,8 +290,6 @@ def _run(played_date: str, *, phase: Optional[str], data_dir: Path | str | None,
                              "annual_salary": signed})
             _announce(base, club, pid, player, years, signed)
 
-    state["last_window"] = window
-    _save_state(base, state)
     return {"applied": bool(extended), "window": window, "talks": talks,
             "extended": extended}
 

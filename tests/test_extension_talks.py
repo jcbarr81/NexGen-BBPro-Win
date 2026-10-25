@@ -65,8 +65,12 @@ def test_temperament_is_fixed_and_mixed():
 def test_ask_is_above_what_he_takes(talks):
     pid = _pid("normal")
     v = view(talks, pid)
-    assert v["ask_salary"] == 11_500_000  # 1.15 x fair
+    # 1.15 x fair, varied by up to 4% either way per player.
+    assert 11_100_000 <= v["ask_salary"] <= 11_900_000
     assert v["mood"] == "open" and v["status"] == "open"
+    # Nothing in the preview names his temperament (with the ask it would
+    # give his minimum away).
+    assert "temperament" not in v
     # An offer between his minimum (0.96 x fair) and his ask is accepted.
     r = offer(talks, pid, 9_700_000)
     assert r.decision == "accepted"
@@ -82,10 +86,12 @@ def test_preview_decides_nothing(talks):
 
 def test_counter_moves_his_ask_and_costs_patience(talks):
     pid = _pid("normal")
+    before = view(talks, pid)["ask_salary"]
     r = offer(talks, pid, 9_000_000)  # below 9.6M minimum, not a lowball
     assert r.decision == "countered"
-    # 40% of the way from 1.15 to 0.96: 1.074 x fair, rounded to $50k.
-    assert r.ask_salary == 10_750_000
+    # About 40% (28-52%) of the way down to his 9.6M minimum.
+    moved = (before - r.ask_salary) / (before - 9_600_000)
+    assert 0.2 < moved < 0.6
     assert view(talks, pid)["mood"] == "open"  # 3 of 4 patience left
     offer(talks, pid, 9_000_000)
     assert view(talks, pid)["mood"] == "impatient"
@@ -93,9 +99,10 @@ def test_counter_moves_his_ask_and_costs_patience(talks):
 
 def test_lowball_costs_double_and_does_not_move_him(talks):
     pid = _pid("normal")
+    before = view(talks, pid)["ask_salary"]
     r = offer(talks, pid, 5_000_000)  # under 0.8 x 9.6M
     assert r.decision == "countered"
-    assert r.ask_salary == 11_500_000
+    assert r.ask_salary == before
     assert "insulted" in r.reason
     assert view(talks, pid)["mood"] == "impatient"  # 2 of 4 left
 
@@ -263,3 +270,27 @@ def test_a_low_offer_is_countered_with_a_409(endpoint):
     # The next preview shows him less patient.
     assert endpoint.router.evaluate_extension(
         "P2", {"years": 3}, identity=ADMIN)["mood"] == "impatient"
+
+
+def test_counters_vary_so_two_asks_do_not_reveal_his_minimum(talks):
+    steps = {round(et._step(f"P{i}", 1), 3) for i in range(20)}
+    assert len(steps) > 10 and min(steps) >= 0.28 and max(steps) <= 0.52
+
+
+def test_he_never_takes_a_pay_cut(talks, monkeypatch):
+    # Overpaid: his fair price is floored at his 12M salary.
+    monkeypatch.setattr(et, "fair_price", lambda *a, **k: 12_000_000)
+    pid = _pid("easy")
+    r = et.respond_to_offer(PLAYER, pid, team_id="BAL", years=3, salary=11_500_000,
+                            service_time_days=0, current_annual_salary=12_000_000,
+                            current_years_left=2, phase="OFFSEASON", data_dir=talks.dir)
+    assert r.decision == "countered"
+
+
+def test_mood_reads_full_once_a_shutdown_is_over(talks):
+    pid = _pid("normal")
+    offer(talks, pid, 5_000_000)
+    days = offer(talks, pid, 5_000_000).shutdown_days
+    assert view(talks, pid)["mood"] == "about to walk away"
+    talks.clock["now"] = ("sim", f"2027-05-{1 + days:02d}")
+    assert view(talks, pid)["mood"] == "open"

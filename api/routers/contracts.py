@@ -134,10 +134,12 @@ def _load_extension_history() -> Dict[str, Dict[str, Any]]:
 def _save_extension_history(history: Dict[str, Dict[str, Any]]) -> None:
     import json
 
+    from utils.atomic_write import atomic_text_writer
+
     path = _extension_history_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+        with atomic_text_writer(path, encoding="utf-8") as fh:
+            fh.write(json.dumps(history, indent=2))
     except Exception:
         pass
 

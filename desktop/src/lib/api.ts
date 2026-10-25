@@ -238,7 +238,6 @@ export interface ExtensionTalksPreview {
   player_id: string;
   ask_salary: number;
   preferred_years: number;
-  temperament: "easy" | "normal" | "hard";
   mood: "open" | "impatient" | "about to walk away";
   status: "open" | "shutdown" | "refuses";
   shutdown_left: number | null;
