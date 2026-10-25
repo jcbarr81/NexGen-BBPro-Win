@@ -1160,7 +1160,12 @@ function FreeAgencyWindowCard() {
           </div>
         )}
         {windowOpen && (
-          <FaDeadlinePanel sched={win?.schedule} canEdit={canProgress} />
+          <FaDeadlinePanel
+            sched={win?.schedule}
+            canEdit={canProgress}
+            day={win?.day ?? undefined}
+            totalDays={win?.total_days}
+          />
         )}
         <FaBiddingWindowPanel
           win={win!}
@@ -1183,9 +1188,13 @@ function FreeAgencyWindowCard() {
 function FaDeadlinePanel({
   sched,
   canEdit,
+  day,
+  totalDays,
 }: {
   sched?: FaWindowSchedule;
   canEdit: boolean;
+  day?: number;
+  totalDays?: number;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FaWindowScheduleInput | null>(null);
@@ -1207,19 +1216,23 @@ function FaDeadlinePanel({
       api.setFaWindowSchedule({ ...payload, deadline: payload.deadline ?? "" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["fa-window"] });
-      toast.success("Free-agency deadline saved.");
+      toast.success("Free-agency schedule saved.");
     },
     onError: (err) => toast.error((err as Error).message),
   });
 
   if (!sched) return null;
 
+  const dayLabel = day ? `Day ${day}` : "This day";
+  const hours = form?.advance_hours ?? sched.advance_hours ?? 24;
+  const hoursText = `${hours} hour${hours === 1 ? "" : "s"}`;
+
   // Owners just need to know when to bid by; no deadline set means nothing to say.
   if (!canEdit) {
     if (!sched.is_scheduled) return null;
     return (
       <div className="rounded-md border border-border bg-surfaceAlt/40 px-3 py-2 text-xs">
-        <span className="text-muted">Bids for this day are due: </span>
+        <span className="text-muted">{dayLabel} bids are due: </span>
         <span className="font-semibold text-ink">
           {formatDeadlineLocal(sched.deadline_utc)}
         </span>
@@ -1227,7 +1240,11 @@ function FaDeadlinePanel({
           ({sched.past_due ? "passed" : formatCountdown(sched.deadline_utc)})
         </span>
         {sched.will_auto_advance && (
-          <span className="ml-2 text-muted">— the day advances automatically.</span>
+          <span className="ml-2 text-muted">
+            — the window then moves to the next day on its own, and each later
+            day is due {sched.advance_hours} hour
+            {sched.advance_hours === 1 ? "" : "s"} after the one before closes.
+          </span>
         )}
       </div>
     );
@@ -1236,11 +1253,18 @@ function FaDeadlinePanel({
   const patch = (p: Partial<FaWindowScheduleInput>) =>
     setForm((f) => (f ? { ...f, ...p } : f));
 
+  // When the last day would close if every day runs its full length.
+  const daysLeft = day && totalDays ? Math.max(0, totalDays - day) : null;
+  const finalClose =
+    form?.deadline && daysLeft !== null
+      ? new Date(new Date(form.deadline).getTime() + daysLeft * hours * 3600_000).toISOString()
+      : null;
+
   return (
     <div className="space-y-2 rounded-md border border-border bg-surfaceAlt/30 p-3">
       <div className="flex flex-wrap items-end gap-2 text-xs">
         <label className="flex flex-col gap-1">
-          <span className="text-muted">Bids due (your local time)</span>
+          <span className="text-muted">{dayLabel} bids due (your local time)</span>
           <Input
             type="datetime-local"
             className="h-8 w-56"
@@ -1255,7 +1279,7 @@ function FaDeadlinePanel({
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-muted">Each day lasts</span>
+          <span className="text-muted">Then each later day gets</span>
           <div className="flex items-center gap-1.5">
             <Input
               type="number"
@@ -1275,7 +1299,7 @@ function FaDeadlinePanel({
             checked={form?.auto_advance ?? false}
             onChange={(e) => patch({ auto_advance: e.target.checked })}
           />
-          <span>Advance automatically (no click)</span>
+          <span>Advance automatically when a day is due</span>
         </label>
         <Button
           size="sm"
@@ -1284,25 +1308,35 @@ function FaDeadlinePanel({
           disabled={!form || save.isPending}
           onClick={() => form && save.mutate(form)}
         >
-          Save deadline
+          Save schedule
         </Button>
       </div>
       {form?.auto_advance ? (
-        <div className="text-[11px] text-muted">
-          Once the deadline passes, the window moves to the next day on its own
-          within a few minutes and the clock resets for the following day.
-          Owners who haven’t bid simply don’t bid — nothing is filled in for
-          them.
+        <div className="space-y-0.5 text-[11px] text-muted">
+          <div>
+            {dayLabel} closes at the time above (within about 10 minutes of
+            it). Each later day is then due {hoursText} after the previous day
+            closed, so the window keeps moving on its own
+            {totalDays ? ` until day ${totalDays} closes` : ""}
+            {finalClose ? ` — around ${formatDeadlineLocal(finalClose)}` : ""}.
+          </div>
+          <div>
+            Clicking “Advance FA day” early restarts the {hoursText} from your
+            click. Owners who haven’t bid simply miss that day; nothing is
+            filled in for them.
+          </div>
         </div>
       ) : (
         <div className="text-[11px] text-muted">
-          The deadline tells owners when to bid by; you still click “Advance FA
-          day.” Turn on automatic advancing so the window doesn’t stall.
+          Owners see the time above as when {dayLabel.toLowerCase()} bids are
+          due, but nothing advances until you click “Advance FA day.” Each click
+          sets the next day’s deadline {hoursText} later. Tick “Advance
+          automatically” to keep the window moving without you.
         </div>
       )}
       {sched.is_scheduled && (
         <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-          <span className="text-muted">Current deadline:</span>
+          <span className="text-muted">Saved: {dayLabel.toLowerCase()} due</span>
           <span className="font-semibold text-ink">
             {formatDeadlineLocal(sched.deadline_utc)}
           </span>
