@@ -704,13 +704,24 @@ def _apply_arbitration_updates(
     player_profiles = _build_player_profiles(data_dir)
     payroll_totals = calculate_annual_payroll_totals(data_dir=data_dir)
     monthly_projection = project_monthly_owner_finance(data_dir=data_dir)
+    from services import service_time
+
+    service_ledger = (
+        service_time.load(data_dir)["players"] if service_time.exists(data_dir) else None
+    )
 
     for player_id, contract in players.items():
         if not isinstance(contract, dict):
             continue
         updated_players += 1
         team_id = str(contract.get("team_id") or "").strip()
-        service_days = _safe_int(contract.get("service_time_days"), fallback=0) + _OFFSEASON_SERVICE_DAYS
+        # 8.5.1: a league with a service-time ledger closed this season's
+        # service at the rollover (services.service_time.close_season);
+        # adding a year here as well would count it twice.
+        if service_ledger is not None:
+            service_days = int(service_ledger.get(str(player_id), 0) or 0)
+        else:
+            service_days = _safe_int(contract.get("service_time_days"), fallback=0) + _OFFSEASON_SERVICE_DAYS
         contract["service_time_days"] = service_days
         years_left = max(1, _safe_int(contract.get("years_left"), fallback=1))
         contract["fa_year"] = next_year + years_left

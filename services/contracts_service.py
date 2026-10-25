@@ -176,6 +176,14 @@ def upsert_contract(
     resolved_year = _resolve_season_year(data_dir=data_dir, season_year=season_year)
     clean_years = max(1, int(years_left))
     clean_salary = max(DEFAULT_MIN_SALARY, int(round(float(annual_salary))))
+    # 8.5.1: service time is the player's (services.service_time); a new
+    # contract carries his, never a fresh 0.
+    try:
+        from services.service_time import service_days as _ledger_days
+
+        service_time_days = max(int(service_time_days), _ledger_days(pid, data_dir))
+    except Exception:  # pragma: no cover - defensive
+        pass
     contract = {
         "team_id": clean_team,
         "years_left": clean_years,
@@ -790,7 +798,7 @@ def seed_inaugural_contracts_from_rosters(
         summary["skipped_non_inaugural"] = True
         return summary
 
-    return _seed_missing_contracts_from_rosters(
+    seeded = _seed_missing_contracts_from_rosters(
         data_dir=resolved_data_dir,
         resolved_year=resolved_year,
         summary=summary,
@@ -801,6 +809,15 @@ def seed_inaugural_contracts_from_rosters(
             season_year=resolved_year,
         ),
     )
+    # 8.5.1: a new league's big leaguers start with service for the careers
+    # they had before it (services.service_time.seed_new_league).
+    try:
+        from services.service_time import seed_new_league
+
+        seed_new_league(resolved_data_dir, season_year=resolved_year)
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return seeded
 
 
 def backfill_missing_contracts_from_rosters(

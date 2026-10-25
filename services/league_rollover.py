@@ -208,6 +208,17 @@ class LeagueRolloverService:
         # listed. The move itself stays after contracts and finances.
         respread_population = self._respread_population()
 
+        # 8.5.1: close the season's service time (services.service_time)
+        # first: the qualifying offers, the contract step and arbitration
+        # all read service time from the contracts it writes.
+        try:
+            from services.service_time import close_season
+
+            artifacts["service_time"] = json.dumps(close_season(_DATA_DIR))
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.exception("rollover: could not close the season's service time")
+            artifacts["service_time_error"] = str(exc)
+
         # Qualifying offers: snapshot the soon-to-expire deals BEFORE the
         # contract rollover removes them, then CPU-resolve QOs for the new
         # season afterward (defensive — never block the rollover).

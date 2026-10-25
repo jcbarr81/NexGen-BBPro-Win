@@ -1718,6 +1718,15 @@ def _run_day_automations(
         except Exception as exc:  # pragma: no cover - defensive
             summary["cpu_extensions_error"] = str(exc)
 
+        # 8.5.1: a played regular-season date is a day of major-league
+        # service for everyone on an active roster or injured list.
+        try:
+            from services.service_time import credit_played_date
+
+            credit_played_date(played_date, phase=SeasonManager().phase.value)
+        except Exception as exc:  # pragma: no cover - defensive
+            summary["service_time_error"] = str(exc)
+
         # FA negotiation windows (#12): advance each open negotiation one day
         # per played date -- CPU teams bid, blow-away offers win early,
         # deadlines resolve and sign the winner. Runs in the parent (post-day),
