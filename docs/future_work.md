@@ -1296,6 +1296,27 @@ These are 7.51 behaviours it ran into, not 8.0.0 changes:
   minimum, `extension_talks.fa_terms`; a window opened before 8.6.0 keeps
   rules 1 until it closes).
 
+## Owner feedback on salaries, 2026-10-26 (8.6.2)
+
+- **Existing contracts sit far below the market (left as they are, owner's
+  call).** alpha-test's contracts from league creation were priced with no
+  service time (age-based pre-arbitration tiers): median $1.2M, about 20% of
+  the model's market value, while this offseason's free agents signed at a
+  median $8.75M (116% of it). Re-pricing them all (never cutting pay, real
+  service time) would take the league median payroll from about $71M to
+  $129M. The owner chose to let them re-price as they expire (1-6 seasons),
+  so free agency looks expensive next to them until then. A new league seeds
+  its opening-day big leaguers' service time by age (8.5.1), so its starting
+  contracts would still be priced without it: revisit seeding if this comes
+  up again.
+- **Pitchers were priced mostly by arm.** Fixed in 8.6.2 (priced by the
+  shared overall, after alpha-test's window opened before 8.6.0 closes).
+- **"Catchers are fast."** alpha-test's catchers average 52.9 speed (faster
+  than 3B and corner outfielders), from the generator used when it was
+  created; today's generator makes catchers the slowest hitters (38.6; the
+  2027 draft class 30.8). Existing catchers keep their ratings (owner's
+  call).
+
 ## Release 6b round 2: ball-flight follow-ups (2026-10-15, branch `r7-ballflight`)
 
 Engine generation 7 (RELEASE6_PLAN section 9). Round 2 re-fitted the
