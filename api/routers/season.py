@@ -1359,21 +1359,17 @@ def _ensure_depth_charts() -> None:
         teams = load_teams()
     except Exception:  # pragma: no cover - defensive
         return
-    try:
-        from services.team_ownership import human_owned_team_ids_strict
-
-        human_ids = human_owned_team_ids_strict()
-    except Exception:  # pragma: no cover - defensive
-        human_ids = None
     for team in teams:
         team_id = str(getattr(team, "team_id", "") or "").strip()
         if not team_id:
             continue
-        # A CPU club's chart is rebuilt every sim so trades and call-ups reach
-        # the lineup; a chart someone saved by hand is never touched.
-        cpu = human_ids is not None and team_id.upper() not in human_ids
+        # A chart the sim generated is rebuilt every sim so signings, trades
+        # and call-ups reach it -- an owner's club too since 8.6.1 (its auto
+        # chart used to keep only departures out, never take arrivals in); a
+        # chart someone saved by hand is never touched
+        # (ensure_default_depth_chart refreshes automation's charts only).
         try:
-            ensure_default_depth_chart(team_id, refresh=cpu)
+            ensure_default_depth_chart(team_id, refresh=True)
         except Exception:
             continue
 

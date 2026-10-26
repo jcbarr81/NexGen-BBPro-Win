@@ -282,3 +282,38 @@ def test_tick_caps_advances_per_tick(monkeypatch, tmp_path):
 
     out = s._tick_fa_windows()
     assert len(out) == s._FA_MAX_ADVANCES_PER_TICK
+
+
+# --- 8.6.1: the next deadline is anchored to the last one ---------------------
+
+
+def test_an_automatic_advance_keeps_the_days_times():
+    from datetime import datetime, timedelta, timezone
+
+    from services.fa_schedule import next_deadline
+
+    due = datetime(2027, 11, 3, 21, 0, tzinfo=timezone.utc)
+    # The tick fires 7 minutes after the 9pm deadline: next due 9am, not 9:07.
+    fired = due + timedelta(minutes=7)
+    assert next_deadline(due, 12, reference=fired) == (due + timedelta(hours=12)).isoformat()
+
+
+def test_an_early_click_restarts_from_the_click():
+    from datetime import datetime, timedelta, timezone
+
+    from services.fa_schedule import next_deadline
+
+    due = datetime(2027, 11, 3, 21, 0, tzinfo=timezone.utc)
+    click = due - timedelta(hours=6)
+    assert next_deadline(due, 12, reference=click) == (click + timedelta(hours=12)).isoformat()
+
+
+def test_a_very_late_or_stale_advance_starts_from_now():
+    from datetime import datetime, timedelta, timezone
+
+    from services.fa_schedule import next_deadline
+
+    due = datetime(2027, 11, 3, 21, 0, tzinfo=timezone.utc)
+    for late in (timedelta(hours=7), timedelta(days=9)):
+        now = due + late
+        assert next_deadline(due, 12, reference=now) == (now + timedelta(hours=12)).isoformat()

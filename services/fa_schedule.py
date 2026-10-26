@@ -159,6 +159,36 @@ def next_deadline_from_now(
     return (ref + timedelta(hours=_coerce_hours(advance_hours))).isoformat()
 
 
+def next_deadline(
+    previous: Optional[datetime],
+    advance_hours: int,
+    *,
+    reference: Optional[datetime] = None,
+) -> str:
+    """The next day's due time after a day advanced (8.6.1).
+
+    A day that advanced at or after its deadline (the automatic advance,
+    which fires within about ten minutes of it, or a late click) is anchored
+    to that deadline, so the days keep their times instead of slipping by the
+    tick's delay each day. A day advanced early (a click before its
+    deadline) restarts from the click, as the settings say. So does a day
+    advanced so late that the anchored time would leave the next day under
+    half its length (the scheduler paused, say): measured from now
+    (:func:`next_deadline_from_now`), the result is never in the past and
+    the window can't burn through its remaining days in consecutive ticks.
+    """
+
+    ref = reference or now_utc()
+    hours = _coerce_hours(advance_hours)
+    if previous is not None and ref >= previous:
+        anchored = previous + timedelta(hours=hours)
+        # A very late advance (the scheduler paused most of a day) would
+        # leave the next day almost no time: then it starts from now.
+        if anchored - ref >= timedelta(hours=hours) / 2:
+            return anchored.isoformat()
+    return next_deadline_from_now(hours, reference=ref)
+
+
 def roll_after_advance(
     *, closed: bool = False, data_dir: Path | str | None = None
 ) -> Optional[str]:
@@ -172,7 +202,9 @@ def roll_after_advance(
     if closed:
         sched["deadline"] = None
     elif sched["deadline"]:
-        sched["deadline"] = next_deadline_from_now(sched["advance_hours"])
+        sched["deadline"] = next_deadline(
+            parse_iso_utc(sched["deadline"]), sched["advance_hours"]
+        )
     else:
         return None
     write_schedule(sched, data_dir=data_dir)

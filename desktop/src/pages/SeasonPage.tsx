@@ -1243,7 +1243,7 @@ function FaDeadlinePanel({
           <span className="ml-2 text-muted">
             — the window then moves to the next day on its own, and each later
             day is due {sched.advance_hours} hour
-            {sched.advance_hours === 1 ? "" : "s"} after the one before closes.
+            {sched.advance_hours === 1 ? "" : "s"} after the one before was due.
           </span>
         )}
       </div>
@@ -1315,8 +1315,9 @@ function FaDeadlinePanel({
         <div className="space-y-0.5 text-[11px] text-muted">
           <div>
             {dayLabel} closes at the time above (within about 10 minutes of
-            it). Each later day is then due {hoursText} after the previous day
-            closed, so the window keeps moving on its own
+            it). Each later day is then due {hoursText} after the previous
+            day's deadline, so the days keep their times and the window keeps
+            moving on its own
             {totalDays ? ` until day ${totalDays} closes` : ""}
             {finalClose ? ` — around ${formatDeadlineLocal(finalClose)}` : ""}.
           </div>
