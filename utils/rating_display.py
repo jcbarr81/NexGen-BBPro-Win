@@ -125,9 +125,15 @@ class OverallDisplayMap:
 # 15-25 and only alpha-test's two weakest (overall 29) reach 1. The design's
 # "about x2.5 / x2.65" cannot put any league's best above about 80 and was
 # not used.
+#
+# 8.6.3 (owner, 2026-10-26): pitchers use the hitters' map. On converted
+# leagues the pitchers' own pivot (53) read low: alpha-test's active pitchers
+# averaged 49 shown against hitters' 62 though their overalls are level
+# (52.3 vs 52.9), and one pitcher in a hundred reached 70. The owner chose to
+# lift pitchers to the hitters' footing rather than lower hitters.
 FULL_SCALE_OVERALL_MAPS: Dict[bool, OverallDisplayMap] = {
     False: OverallDisplayMap(50.0, 2.5, 4.0, 59.0, 2.0),  # hitters
-    True: OverallDisplayMap(53.0, 2.5, 4.0, 62.0, 2.0),  # pitchers
+    True: OverallDisplayMap(50.0, 2.5, 4.0, 59.0, 2.0),  # pitchers (8.6.3)
 }
 
 

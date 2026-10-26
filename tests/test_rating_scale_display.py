@@ -112,10 +112,10 @@ def _serve(root: Path, scale: int, mutate=None):
 def _shown_overall(score: float, pitcher: bool) -> int:
     """The scale 2 overall worked out by hand from the published map (not
     through ``utils.rating_display``): 4 shown points per overall point
-    from the pivot (50 hitters, 53 pitchers) to pivot + 9, 2 per point
+    from the pivot (50; pitchers too since 8.6.3) to pivot + 9, 2 per point
     above that, 2.5 per point below the pivot; rounded half up, 1-99."""
 
-    pivot = 53.0 if pitcher else 50.0
+    pivot = 50.0
     if score < pivot:
         shown = 50 - 2.5 * (pivot - score)
     elif score <= pivot + 9:
@@ -250,9 +250,25 @@ def test_stars_are_handed_out_about_as_before(plain, twin):
         counts = collections.Counter(stars)
         return {k: 100.0 * v / len(stars) for k, v in counts.items()}
 
-    before, after = shares(plain[1]), shares(twin[1])
+    # Hitters: as before. Pitchers moved onto the hitters' map in 8.6.3
+    # (owner's call: they read low), so they get more stars, never fewer.
+    def hitters(payloads):
+        return {"players/browse": {"players": [
+            p for p in payloads["players/browse"]["players"] if not p["is_pitcher"]]}}
+
+    # 3.5 points: hitters alone drift 3.1 at 1.5 stars and 2.8 at 3.5,
+    # which the old all-players check (2 points) averaged away with the
+    # pitchers; the hitters' map did not change in 8.6.3.
+    before, after = shares(hitters(plain[1])), shares(hitters(twin[1]))
     for key in set(before) | set(after):
-        assert abs(before.get(key, 0.0) - after.get(key, 0.0)) <= 2.0, (key, before, after)
+        assert abs(before.get(key, 0.0) - after.get(key, 0.0)) <= 3.5, (key, before, after)
+
+    def good_pitchers(payloads):
+        stars = [float(p["overall_stars_text"] or 0) for p in payloads["players/browse"]["players"]
+                 if p["is_pitcher"] and p["overall_stars_text"]]
+        return sum(1 for x in stars if x >= 3.5)
+
+    assert good_pitchers(twin[1]) >= good_pitchers(plain[1])
 
 
 def test_the_profile_shows_stored_ratings_and_the_archived_season_on_scale_2(plain, twin):
@@ -484,10 +500,11 @@ def test_the_overall_display_map():
     from utils.rating_display import full_scale_overall
 
     assert full_scale_overall(50.0, is_pitcher=False) == 50
-    assert full_scale_overall(53.0, is_pitcher=True) == 50
+    # Pitchers on the hitters' map (8.6.3).
+    assert full_scale_overall(50.0, is_pitcher=True) == 50
     assert full_scale_overall(59.0, is_pitcher=False) == 86
     assert full_scale_overall(61.0, is_pitcher=False) == 90
-    assert full_scale_overall(64.0, is_pitcher=True) == 90
+    assert full_scale_overall(61.0, is_pitcher=True) == 90
     assert full_scale_overall(40.0, is_pitcher=False) == 25
     assert full_scale_overall(20.0, is_pitcher=False) == 1
     assert full_scale_overall(80.0, is_pitcher=True) == 99
@@ -497,8 +514,10 @@ def test_the_overall_display_map():
 
 
 def test_the_best_overall_of_the_league_fixture_lands_near_the_top():
-    """The league fixture's best hitter (58.9) and pitcher (62.9) read in
-    the 80s; its average active hitter and pitcher read about 50-60."""
+    """The league fixture's best hitter (58.9) reads in the 80s. Its best
+    pitcher (62.9) reads 94 on the hitters' map pitchers use since 8.6.3:
+    this scale 1 fixture's pitchers sit about three points above its
+    hitters (on converted alpha-test the best pitcher reads 83)."""
 
     from utils.pitcher_role import get_role
     from utils.player_overall import hitter_overall_score, pitcher_overall_score
@@ -508,7 +527,7 @@ def test_the_best_overall_of_the_league_fixture_lands_near_the_top():
     hitters = [hitter_overall_score(r.get, r.get("primary_position")) for r in rows if not _is_pitcher(r)]
     pitchers = [pitcher_overall_score(r.get, get_role(r)) for r in rows if _is_pitcher(r)]
     assert 84 <= full_scale_overall(max(h for h in hitters if h), is_pitcher=False) <= 92
-    assert 84 <= full_scale_overall(max(p for p in pitchers if p), is_pitcher=True) <= 92
+    assert 84 <= full_scale_overall(max(p for p in pitchers if p), is_pitcher=True) <= 96
 
 
 def test_the_scouting_error_keeps_its_size_in_shown_points():
