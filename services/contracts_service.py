@@ -652,6 +652,34 @@ def rollover_contracts_for_new_season(
     }
 
 
+def _pitchers_priced_by_overall() -> bool:
+    """Whether pitchers are priced by the shared overall (8.6.2).
+
+    Not while a free-agency bidding window opened before 8.6.0 (no
+    ``offer_rules`` stamp: alpha-test's 2027 window) is still open: that
+    auction's prices don't move mid-window (owner's call); the switch takes
+    effect when it closes. Cached on the window file.
+    """
+
+    try:
+        from utils.file_cache import cached_read
+
+        path = get_data_dir() / "fa_window.json"
+
+        def _load() -> bool:
+            try:
+                window = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return True
+            if not isinstance(window, dict):
+                return True
+            return not (window.get("status") == "open" and not window.get("offer_rules"))
+
+        return bool(cached_read(f"pitcher_pricing|{path}", (path,), _load))
+    except Exception:  # pragma: no cover - defensive
+        return True
+
+
 def _player_quality_score(player: object | None) -> float | None:
     """Star-weighted "overall" on the rating scale (~20..80).
 
@@ -666,6 +694,24 @@ def _player_quality_score(player: object | None) -> float | None:
     is_pitcher = bool(getattr(player, "is_pitcher", False)) or str(
         getattr(player, "primary_position", "") or ""
     ).strip().upper() == "P"
+
+    if is_pitcher and _pitchers_priced_by_overall():
+        # 8.6.2 (owner feedback, 2026-10-26): price a pitcher by the shared
+        # overall owners see (utils.player_overall), which follows control
+        # and movement -- what wins games -- where the weights below follow
+        # arm (corr .79 with them, .09 with the overall), so a hard thrower
+        # with poor command (alpha-test's Hector Gomez: overall 39 on the
+        # page) was paid like a good pitcher. Same scale (pitchers' mean 50.7
+        # vs 49.1 here, equal spread). Hitters keep their weights: those
+        # already match the overall (corr .96).
+        try:
+            from utils.player_overall import player_overall_score
+
+            overall = float(player_overall_score(player) or 0.0)
+        except Exception:  # pragma: no cover - defensive
+            overall = 0.0
+        if overall > 0:
+            return overall
 
     if is_pitcher:
         weighted = [
