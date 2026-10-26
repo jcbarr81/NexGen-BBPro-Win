@@ -1269,14 +1269,13 @@ The rehearsal drove full copies of alpha-test and stats-test through the
 real API with the switch on (`r6/p8/rehearsal/` in the session scratch).
 These are 7.51 behaviours it ran into, not 8.0.0 changes:
 
-- **Owner clubs' auto-generated depth charts never pick up arrivals.**
-  Departures leave every chart (8.4.1, `services/departure_cleanup.py`),
-  but `api.routers.season._ensure_depth_charts` refreshes CPU clubs'
-  auto charts only, so a signing, trade or call-up never joins an owner
-  club's auto chart. Refreshing owner clubs' auto charts too would fix it
-  without touching a chart an owner saved; it needs a decision.
-- **The 2026 World Series was dated 2027-01-19 to 01-24** on a copied
-  league in the rehearsal. Not investigated.
+- **Owner clubs' auto-generated depth charts never picked up arrivals.**
+  Fixed in 8.6.1 (`api.routers.season._ensure_depth_charts` refreshes every
+  club's auto chart).
+- **The 2026 World Series was dated 2027-01-19 to 01-24.** Explained in
+  8.6.1: both live leagues' 2026 schedules predate Release 3's dense layout
+  (162 game dates from April 1 to December 30). The 2027 schedule runs April 1
+  to October 8 (`tests/test_schedule_season_length.py`).
 
 ## Contract re-negotiation with your own players (owner request, 2026-10-16)
 
