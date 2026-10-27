@@ -198,6 +198,13 @@ to yearly promotion, then switch to the shared score.
 - `services/draft_ai.py` (a need-aware CPU draft score) is not called
   anywhere in production: wire it into the auto-pick (on the shared
   overall) or delete it.
+- **The auto-pick leans to pitchers.** The draft-pool generator makes
+  pitcher prospects better than hitters (current overall ~42 against ~37.5,
+  potential 1-5 points higher, in all three live pools), so ranking by the
+  shared overall takes 20-21 pitchers in the top 30 (alpha-test 2027: 9 of
+  the top 10; the old flat mean took 15-21). Ranking by potential or a
+  blend does not fix it (11-21). Either balance the generator or pick by
+  team need (the `draft_ai` item above).
 
 ## 52a. Retirement bars retire almost everyone past an age
 
