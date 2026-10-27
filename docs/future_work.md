@@ -1425,3 +1425,59 @@ two of its games plays serially under `PB_PARALLEL_GAMES`. Left open:
   `legacy_guard`) still adds a playoff game into the season totals.
 - Archive with the season at rollover like the regular-season stats; include
   in the almanac / exports.
+
+## 64. Make salary arbitration work like real baseball (owner request, 2026-10-26)
+
+**How it works today** (`services/offseason_finance_flow._apply_arbitration_updates`,
+run at the rollover after service time closes, contracts count down and
+qualifying offers):
+- Eligible: a player still **under contract** going into the last year of
+  his deal with 3+ years of service (516 days); Advanced adds a "super two"
+  (2 years left, 2 years + 120 days).
+- Award: a flat raise on his current salary, +12% (Basic) or +22% (Advanced,
+  super two at most 16%). Owners' clubs always get the standard raise; CPU
+  clubs' raise is adjusted by `finance_ai.recommend_cpu_arbitration_decision`
+  (stars more, underperformers less, a contender on a cautious budget can
+  non-tender), and the payroll rules can hold it. The commissioner has a
+  per-club review queue (`services/gm_finance_queue.build_arbitration_queue`).
+- The talent score is the old flat rating average (`_player_talent_score`,
+  arm and endurance in, eye out for pitchers; see #52).
+- The level is the finance module `gm_arbitration` (off / basic / advanced),
+  set only through the finance preset at league creation: "Simple" turns it
+  off (alpha-test), "Standard" basic, "MLB-like" advanced. stats-test is
+  Basic and has never rolled over.
+
+**What's wrong with it:** the award ignores the market (alpha-test's
+creation contracts sit at ~20% of market value, so +12% barely moves them);
+it raises players still under contract instead of players whose contracts
+ran out; a player whose deal expires becomes a free agent whatever his
+service time (only qualifying offers hold him); owners make no decision.
+
+**Asked for:**
+- A league-creation option for arbitration, on its own (not only through
+  the finance preset): **Off**, **Automatic** (today's behaviour or a
+  hands-off version of the new one: the club tenders and the award is set
+  without owner input), or **MLB-like**.
+- MLB-like:
+  - Players with 3-6 years of service (plus the super-two group) whose
+    contract runs out stay under club control instead of becoming free
+    agents; 6+ years reach free agency as now.
+  - The club decides to **tender** or **non-tender** each one before a
+    deadline (non-tender = free agent); owners decide for their clubs, CPU
+    clubs with the finance AI (and its payroll ceiling, like
+    `services/cpu_extensions.py`).
+  - The award is market-based: a share of the free-agent market value
+    rising with each arbitration year (`contracts_service`'s stage /
+    `arb_year` already model ~ pre-arb / arb 1-3 / FA), driven by
+    performance and the shared overall, never below the current salary.
+  - Optionally the club and player exchange figures and the "hearing" picks
+    one, or the two settle in between; extension talks
+    (`services/extension_talks.py`) stay open until the hearing.
+  - Dashboard Spotlight + news when arbitration opens, for each owner's
+    eligible players and before the tender deadline (owners must not have
+    to go looking).
+- The commissioner can change the setting for an existing league (takes
+  effect at the next rollover).
+
+**Status:** Open. Owner said to leave the current behaviour alone for now
+(alpha-test stays off).
