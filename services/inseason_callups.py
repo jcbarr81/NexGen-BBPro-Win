@@ -39,7 +39,7 @@ from services.team_ownership import human_owned_team_ids_strict
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.rating_display import league_display_scale, overall_for_text
-from utils.rating_scale import engine_rating
+from utils.player_overall import player_overall_score
 from utils.roster_loader import (
     ACTIVE_ROSTER_SIZE,
     MIN_ACTIVE_PITCHERS,
@@ -97,36 +97,14 @@ def _primary_pos(player: object) -> str:
     return str(getattr(player, "primary_position", "") or "").strip().upper()
 
 
-def _num(player: object, key: str) -> float:
-    """One rating of ``player`` on the engine scale (utils.rating_scale)."""
-
-    try:
-        return float(engine_rating(player, key, 0) or 0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-# rating-scale: _num reads through engine_rating
-def _hitter_score(player: object) -> float:
-    # Duplicated from utils.lineup_autofill.hitter_score (a closure; do not
-    # refactor that module here).
-    ch, ph = _num(player, "ch"), _num(player, "ph")
-    return (
-        0.6 * (0.5 * ch + 0.5 * ph)
-        + 0.2 * _num(player, "sp")
-        + 0.2 * (0.5 * _num(player, "fa") + 0.5 * _num(player, "arm"))
-    )
-
-
-# rating-scale: _num reads through engine_rating
-def _pitcher_score(player: object) -> float:
-    vals = [_num(player, k) for k in ("arm", "control", "movement", "endurance")]
-    vals = [v for v in vals if v > 0]
-    return sum(vals) / len(vals) if vals else 0.0
-
-
 def _score(player: object) -> float:
-    return _pitcher_score(player) if _is_pitcher(player) else _hitter_score(player)
+    """How good a player is for the call-up decisions (the position holes and
+    who goes down): the shared overall (``utils.player_overall``, backlog
+    #52), which puts hitters and pitchers on one footing. It used to be a
+    hitter formula against a flat pitcher mean (arm and endurance in)."""
+
+    score = player_overall_score(player)
+    return float(score) if score is not None else 0.0
 
 
 def _player_age(player: object) -> int | None:
@@ -252,7 +230,7 @@ def _build_hole_table(
             pos = _primary_pos(player)
             if pos not in best:
                 continue
-            score = _hitter_score(player)
+            score = _score(player)
             if best[pos] is None or score > best[pos]:
                 best[pos] = score
         team_best[team_id] = best

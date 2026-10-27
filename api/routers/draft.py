@@ -18,7 +18,7 @@ from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.rating_display import display_rating, display_scale_for
-from utils.rating_scale import LEGACY_RATING_SCALE, engine_rating
+from utils.player_overall import player_overall_score
 
 from ..security import CurrentIdentity
 from ._rating_presentation import compute_overall, page_scale
@@ -123,12 +123,12 @@ def _prospect_lookup(year: int) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def _full_scale_prospect_overall(
+def _prospect_shown_overall(
     prospect: Dict[str, Any], is_pitcher: bool, scale: int
 ) -> Dict[str, Any]:
-    """The overall a scale 2 page shows for a draft pool entry: the shared
-    overall every other page shows, stretched, not the crude mean the
-    auto-pick ranks by (which stays as it is)."""
+    """The overall a page shows for a draft pool entry: the shared overall
+    every other page shows, on the page's scale, so a prospect's OVR does
+    not change once he is drafted (backlog #52)."""
 
     return compute_overall(
         prospect.get,
@@ -181,13 +181,12 @@ def _hydrate_pick(
         row["last_name"] = str(prospect.get("last_name", "") or "")
         row["primary_position"] = str(prospect.get("primary_position", "") or "")
         row["is_pitcher"] = is_pitcher
-        row["overall_raw"] = _prospect_overall(prospect)
-        row["overall_display"] = row["overall_raw"]
-        row["overall_stars_text"] = None
-        scale = display_scale_for(prospect, league_scale)
-        if scale != LEGACY_RATING_SCALE:
-            shown = _full_scale_prospect_overall(prospect, is_pitcher, scale)
-            row["overall_display"] = shown["overall_display"]
+        shown = _prospect_shown_overall(
+            prospect, is_pitcher, display_scale_for(prospect, league_scale)
+        )
+        row["overall_raw"] = shown["overall_raw"]
+        row["overall_display"] = shown["overall_display"]
+        row["overall_stars_text"] = shown["overall_stars_text"]
         return
 
     row["first_name"] = ""
@@ -384,12 +383,9 @@ def draft_pool_view(
             except Exception:
                 age = None
         scale = display_scale_for(prospect, league_scale)
-        if scale == LEGACY_RATING_SCALE:
-            shown_overall = _prospect_overall(prospect)
-        else:
-            shown_overall = _full_scale_prospect_overall(
-                prospect, is_pitcher, scale
-            )["overall_display"]
+        shown_overall = _prospect_shown_overall(
+            prospect, is_pitcher, scale
+        )["overall_display"]
         # rating-scale: display payload; shows the ratings as stored on the
         # page's scale (display_rating)
         rows.append(
@@ -795,36 +791,16 @@ def _load_settings_rounds() -> int:
 
 
 def _prospect_overall(prospect: Dict[str, Any]) -> int:
-    """Crude best-available score: max of hitter chunk vs pitcher chunk."""
+    """Best-available score (the auto-pick): the shared overall
+    (``utils.player_overall``, backlog #52), on the engine scale so it does
+    not move with the pool's rating scale. It used to be a flat mean that
+    counted a pitcher's arm and endurance and left out eye."""
 
-    is_pitcher = str(prospect.get("is_pitcher", "")).lower() in {
-        "1",
-        "true",
-        "yes",
-        "y",
-    }
     try:
-        # rating-scale: keys read through engine_rating below
-        if is_pitcher:
-            keys = ("control", "movement", "endurance", "fb", "arm")
-        else:
-            keys = ("ch", "ph", "sp", "eye", "fa", "arm")
-        values = []
-        for k in keys:
-            # Engine scale: this mean ranks the best available pick (the
-            # auto-pick), so it must not move with the pool's rating scale.
-            v = engine_rating(prospect, k)
-            if v in (None, ""):
-                continue
-            try:
-                values.append(int(v))
-            except (TypeError, ValueError):
-                continue
-        if not values:
-            return 0
-        return sum(values) // len(values)
+        score = player_overall_score(prospect)
     except Exception:
         return 0
+    return int(round(score)) if score is not None else 0
 
 
 def _best_available(year: int, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:

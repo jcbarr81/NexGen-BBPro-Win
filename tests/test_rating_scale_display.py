@@ -35,11 +35,13 @@ from tests import rating_scale_support as support
 # Rating and overall fields of each payload of the scale 1 display league
 # (tests/rating_display_support.py), sha256 of their canonical JSON, as
 # served before the scale 2 display was built. A change here is a change to
-# what every league sees today: only re-pin it on purpose.
+# what every league sees today: only re-pin it on purpose. The draft entries
+# were re-pinned for 8.6.4 (backlog #52): a scale 1 draft board shows the
+# shared overall its players show once drafted, not the old flat mean.
 PINNED_SCALE_1 = {
     "contracts": "c1d44a4b8766418b23a66bc8fa97e590a419f5c7963d42a7e4d7fa1d4c6f9e47",
-    "draft/pool": "c52539279e6f26a2e43ee2bf843d13fa04f1b1e950b4c749a93bad9436932011",
-    "draft/state.selected": "3e9bcbe7019927b23a01479f3255eb17e0549f702b6b845b669a7fb53b5e1db1",
+    "draft/pool": "33f08bea767c21730fa9cd879e36fd963b83767c5bb064ff8ee81f40fc52e934",
+    "draft/state.selected": "2013de164017f4d14a1ac852b5289327b8d3b7b5c8149b2713fc6bc0bb13fd98",
     "free-agents": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "players/browse": "5874bd35c4f39b178c1ab004d72885bff4eb318cc1c38cdaa9142c8458e94e3c",
     "players/list": "52550f6c499b2273abef1edad2343feb703d60d71c1aaf7e54c4bda8a9e33ded",

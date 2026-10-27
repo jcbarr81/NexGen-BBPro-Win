@@ -178,15 +178,39 @@ to yearly promotion, then switch to the shared score.
 
 ## 52. Unify the remaining CPU and display scores with the shared overall
 
-Still on their own flat averages (which count arm -- wrong-signed today --
-and endurance, and leave out eye): `api/routers/draft._prospect_overall`
-(draft-board OVR column and CPU best-available autopick, so a prospect's OVR
-changes scale once drafted), `services/cpu_trade_proposals._player_trade_value`,
-`services/free_agency._quality_score` (CPU FA signing order),
-`services/player_retirement._player_overall`, and
-`services/inseason_callups._hitter_score/_pitcher_score`. Route them through
-`utils.player_overall.player_overall_score` (each needs its own check of what
-it ranks).
+> **Shipped in 8.6.4 (2026-10-27):** the draft board / auto-pick, the CPU
+> free-agent signing order, CPU trade proposals, retirement and in-season
+> call-ups use `utils.player_overall.player_overall_score`
+> (`tests/test_shared_overall_consumers.py`). Measured on copies of both
+> live leagues: retirements 181 -> 182 with the same bars, trade-proposal
+> spread cv .070 -> .076 (bands kept). Still on flat averages, left out on
+> purpose:
+
+- **CPU free-agent bidding** (`services/finance_ai._free_agent_quality_score`):
+  its bars (`fa_star_quality_threshold`, 78, and the hard-coded 72 / 80 and
+  +2..+10 offsets) are in the old average's points, and the threshold is
+  stored in each league's `finance_ai_tuning` (both live leagues carry 78)
+  and is commissioner-editable. Switching the score needs a matched bar and
+  a migration of the stored value.
+- **Arbitration** (`offseason_finance_flow._player_talent_score`,
+  `gm_finance_queue._player_talent_score`, `star_talent_threshold` 76):
+  same stored-tuning problem; do it with #64.
+- `services/draft_ai.py` (a need-aware CPU draft score) is not called
+  anywhere in production: wire it into the auto-pick (on the shared
+  overall) or delete it.
+
+## 52a. Retirement bars retire almost everyone past an age
+
+Found measuring #52 (2026-10-27). The bars in
+`services/player_retirement` are in engine points, where big leaguers
+average ~52 with a spread of ~3-4 and almost nobody reaches 60: every
+big leaguer 38+ (bar 60) and every AAA player 32+ (bar 60) retires
+whatever his quality, and the 80-95 bars at 42+ can never be met.
+alpha-test's 2027 rollover retired 62 (41 AAA "career minor leaguers",
+19 "declining"); stats-test's first rollover would retire ~180 (130 of
+them AAA players). Re-derive the bars as percentiles of the engine
+overall by level and age (or on the shown 1-99 scale) so a good 39-year-old
+can keep playing.
 
 ## 53. 2026 fielding rate stats mix two periods
 

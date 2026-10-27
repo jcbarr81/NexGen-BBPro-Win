@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
-from utils.rating_scale import engine_rating
+from utils.player_overall import player_overall_score
 
 # Retirement is graded by age AND roster level. Bars are higher in the
 # minors because a player stuck at AAA into their 30s isn't going to
@@ -128,29 +128,14 @@ def is_retired(player_id: str, *, data_dir: Optional[Path] = None) -> bool:
 
 
 def _player_overall(player: object) -> int:
-    """Crude OVR approximation; mirrors what _talent_score does in the
-    contract negotiator. Avoids importing UI-side rating tables."""
+    """The overall the retirement bars are checked against: the shared
+    overall (``utils.player_overall``, backlog #52) in engine points, like
+    the bars. It used to be a flat mean (arm and endurance for pitchers);
+    on the live leagues the same bars retire the same number of players
+    (181 against 182) with either score."""
 
-    is_pitcher = bool(getattr(player, "is_pitcher", False))
-    # rating-scale: keys read through engine_rating below
-    keys = (
-        ("arm", "control", "movement", "endurance")
-        if is_pitcher
-        else ("ch", "ph", "sp", "eye", "fa", "arm")
-    )
-    values: list[float] = []
-    for key in keys:
-        # Engine scale: the retirement bars are in engine points.
-        raw = engine_rating(player, key, None)
-        if raw is None:
-            continue
-        try:
-            values.append(float(raw))
-        except (TypeError, ValueError):
-            continue
-    if not values:
-        return 50
-    return int(round(sum(values) / len(values)))
+    score = player_overall_score(player)
+    return int(round(score)) if score is not None else 50
 
 
 def should_retire(
