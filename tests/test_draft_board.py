@@ -132,7 +132,7 @@ def test_a_due_need_with_nobody_on_the_board_takes_the_best_at_the_position():
     choice = _choose(board)
     assert choice.player_id == "C1"
     assert choice.source == "fallback"
-    assert "at C" in choice.reason
+    assert "the best C available (your need by round 1)" in choice.reason
 
 
 # --- tiers -------------------------------------------------------------------
@@ -448,3 +448,76 @@ def test_a_board_with_a_setting_no_longer_allowed_still_loads(tmp_path):
     assert [e["player_id"] for e in board["entries"]] == ["SS1"]
     assert board["position_limits"] == {}
     assert board["made"] == [{"player_id": "C1"}]
+
+
+# --- review findings (8.7.0) ---------------------------------------------------
+
+
+def test_a_need_nobody_can_fill_does_not_block_the_list():
+    board = _board(["CF1"], needs=[{"position": "C", "count": 1, "by_round": 1}])
+    choice = _choose(board, taken={"C1", "C2"})
+    assert choice.player_id == "CF1"
+    assert choice.source == "board"
+
+
+def test_the_fallback_keeps_the_owners_group_and_round_rules():
+    # One of group A is drafted: the fallback must not take the other.
+    board = _board([
+        {"player_id": "SS1", "group": "A"},
+        {"player_id": "P1", "group": "A"},
+    ])
+    choice = _choose(board, drafted=["SS1"])
+    assert choice.source == "fallback" and choice.player_id != "P1"
+    # Not before round 5 holds in the fallback too.
+    board = _board([{"player_id": "SS1", "not_before_round": 5}, "C1"])
+    choice = _choose(board, taken={"C1"}, round_no=1)
+    assert choice.player_id != "SS1"
+
+
+def test_the_fallback_reason_says_what_it_actually_took():
+    board = _board([], fallback="best_pitcher", needs=[{"position": "SS", "count": 1, "by_round": 1}])
+    choice = _choose(board)
+    assert choice.player_id == "SS1"
+    assert "the best SS available" in choice.reason and "pitcher" not in choice.reason
+    hitters_only = [_p("H1", "1B", 60)]
+    choice = B.choose(_board([], fallback="best_pitcher"), pool=hitters_only, taken=set(), drafted=[], round_no=1)
+    assert "no pitcher was left" in choice.reason
+
+
+def test_a_need_the_limits_forbid_is_refused():
+    with pytest.raises(ValueError, match="at least 2 SS but allow at most 1 IF"):
+        _board(position_limits={"IF": 1}, needs=[{"position": "SS", "count": 2, "by_round": 3}])
+
+
+def test_a_board_file_that_is_not_an_object_reads_as_empty(tmp_path):
+    path = B.board_path(2027, "BAL", data_dir=tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text("[1, 2]", encoding="utf-8")
+    assert B.load_board(2027, "BAL", data_dir=tmp_path)["entries"] == []
+
+
+def test_the_notification_does_not_carry_the_boards_reasoning(monkeypatch):
+    """A club's notification history is readable by others: the board's
+    reason (which names players on it) stays on the private board."""
+    from types import SimpleNamespace
+
+    sent = []
+    monkeypatch.setattr(D, "_prospect_lookup", lambda year: dict(BY_ID))
+    monkeypatch.setattr(D.draft_board, "record_pick", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: {"BAL"}
+    )
+    monkeypatch.setattr(
+        "services.notification_settings.load_notification_settings",
+        lambda team: SimpleNamespace(rule=lambda rid: SimpleNamespace(enabled=True, notify=True)),
+    )
+    monkeypatch.setattr(
+        "services.notification_engine.append_history", lambda team, events: sent.extend(events)
+    )
+    D._tell_owner_of_pick(
+        2027, "BAL", {"round": 1, "overall": 2, "player_id": "C2"},
+        reason="From your board: #3. Passed over: #1 Joe SS1 (taken).", why="clock", board=True,
+    )
+    assert len(sent) == 1
+    assert "Joe C2 (C)" in sent[0].message
+    assert "SS1" not in sent[0].message and "My Board" in sent[0].message

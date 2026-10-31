@@ -9,7 +9,7 @@
  * the commissioner included.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -168,12 +168,29 @@ export function DraftBoardTab({ teamId, year }: { teamId: string; year: number }
   const [entries, setEntries] = useState<DraftBoardEntry[]>([]);
   const [dirty, setDirty] = useState(false);
 
-  // Take the server's board whenever there are no unsaved edits, so a star
-  // added from the draft class (or a pick made meanwhile) shows up here.
+  // The player ids the server's board had when this tab last took it.
+  const syncedIds = useRef<string[]>([]);
+
+  // Take the server's board whenever there are no unsaved edits. With
+  // unsaved edits, merge in only what changed on the server meanwhile (a
+  // star added or removed in the draft class list), so neither is lost.
   useEffect(() => {
-    if (!boardQ.data || dirty) return;
-    setSettings(boardQ.data.board);
-    setEntries(boardQ.data.entries.map(stripRow));
+    if (!boardQ.data) return;
+    const serverIds = boardQ.data.entries.map((e) => e.player_id);
+    if (!dirty) {
+      setSettings(boardQ.data.board);
+      setEntries(boardQ.data.entries.map(stripRow));
+    } else {
+      const before = new Set(syncedIds.current);
+      const now = new Set(serverIds);
+      const added = boardQ.data.entries.filter((e) => !before.has(e.player_id));
+      setEntries((prev) => {
+        const kept = prev.filter((e) => now.has(e.player_id) || !before.has(e.player_id));
+        const have = new Set(kept.map((e) => e.player_id));
+        return [...kept, ...added.filter((e) => !have.has(e.player_id)).map(stripRow)];
+      });
+    }
+    syncedIds.current = serverIds;
   }, [boardQ.data, dirty]);
 
   const saveMut = useMutation({
@@ -223,7 +240,8 @@ export function DraftBoardTab({ teamId, year }: { teamId: string; year: number }
 
   const view = boardQ.data;
   const rowsById = new Map(view.entries.map((r) => [r.player_id, r]));
-  const locked = view.draft.complete;
+  // Edits made while a save is in flight would be overwritten by its reply.
+  const locked = view.draft.complete || saveMut.isPending;
 
   return (
     <div className="space-y-6">
@@ -526,15 +544,19 @@ function NeedsAndLimitsCard({
             return (
               <div key={idx} className="flex flex-wrap items-center gap-2 text-xs">
                 <span>At least</span>
-                <Input
-                  className="h-8 w-12 px-2 text-xs"
-                  inputMode="numeric"
+                <select
+                  className={SELECT_CLASS}
                   value={need.count}
                   disabled={locked}
-                  onChange={(e) =>
-                    setNeed(idx, { count: Math.max(1, parseInt(e.target.value, 10) || 1) })
-                  }
-                />
+                  onChange={(e) => setNeed(idx, { count: parseInt(e.target.value, 10) })}
+                  aria-label="How many"
+                >
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
                 <select
                   className={SELECT_CLASS}
                   value={need.position}

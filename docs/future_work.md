@@ -1661,3 +1661,16 @@ changed only what owners control.
 position and returns limits/needs, used by the CPU branch of `auto_advance`;
 measure on a copy of alpha-test that the CPU still takes most of the top 30.
 Small to medium.
+
+## 71. A club's notification history is readable by anyone in the league (found 2026-10-31)
+
+`GET /notifications/history/{team_id}` (`api/routers/notifications.py`) has
+no ownership check: any signed-in member can read another club's
+notifications. Found while reviewing draft boards (8.7.0), whose
+notification was changed to leave out the board's reasoning (it names the
+players on the board) for this reason. Nothing private is known to be in
+those notifications today, but owner-only content will keep landing there.
+
+**Plan:** call `require_team_owner(identity, team_id)` on the read endpoints
+(the commissioner still passes), and check the client only asks for the
+user's own club. Small.

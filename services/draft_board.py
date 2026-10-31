@@ -130,6 +130,8 @@ def load_board(year: int, team_id: str, *, data_dir: Path | str | None = None) -
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default_board(team_id, year)
+    if not isinstance(raw, Mapping):
+        return default_board(team_id, year)
     try:
         board = normalize_board(raw, team_id=team_id, year=year)
     except ValueError:
@@ -234,6 +236,16 @@ def normalize_board(
             }
         )
     board["needs"] = needs
+    # A need the limits forbid would hold the pick at that position for the
+    # rest of the draft.
+    for need in needs:
+        members = POSITION_GROUPS[need["position"]]
+        for key, limit in limits.items():
+            if members <= POSITION_GROUPS[key] and need["count"] > limit:
+                raise ValueError(
+                    f"You need at least {need['count']} {need['position']} but allow "
+                    f"at most {limit} {key}."
+                )
 
     fallback = str(raw.get("fallback") or DEFAULT_FALLBACK).strip().lower()
     if fallback not in FALLBACKS:
@@ -412,7 +424,16 @@ def choose(
         return None
     counts = _counts(drafted)
     needs = _open_needs(board, counts)
-    due = next((n for n in needs if int(n["by_round"]) <= int(round_no)), None)
+    # The most urgent need that is due and can still be met: one with nobody
+    # left at its position must not hold every pick for the rest of the draft.
+    due = next(
+        (
+            n for n in needs
+            if int(n["by_round"]) <= int(round_no)
+            and any(n["position"] in position_groups_of(p) for p in available)
+        ),
+        None,
+    )
     drafted_ids = {str(p.get("player_id") or "") for p in drafted}
     used_groups = {
         e["group"] for e in board.get("entries") or ()
@@ -475,36 +496,74 @@ def choose(
             reason += " Passed over: " + "; ".join(passed) + "."
         return BoardChoice(entry["player_id"], "board", reason, rank)
 
-    # The board ran dry: the fallback, still inside the position limits.
+    # The board ran dry: the fallback, still inside the owner's rules. A
+    # player he ruled out on his list (one of a group already used, not
+    # before a later round) stays ruled out, unless nobody else is left.
     fallback = str(board.get("fallback") or DEFAULT_FALLBACK)
-    within = [p for p in available if not _full_limit(p, board, counts)]
+    ruled_out = {
+        e["player_id"] for e in board.get("entries") or ()
+        if (e.get("group") and e["group"] in used_groups)
+        or (e.get("not_before_round") and int(round_no) < int(e["not_before_round"]))
+    }
+    candidates = [p for p in available if str(p.get("player_id") or "") not in ruled_out]
+    candidates = candidates or available
+    within = [p for p in candidates if not _full_limit(p, board, counts)]
     # Every player left is at a position the owner limited: somebody must
     # still be picked, so the limits give way.
     capped_out = not within
-    pool_left = within or available
+    pool_left = within or candidates
+    at_due = False
     if due is not None:
         at_need = [p for p in pool_left if due["position"] in position_groups_of(p)]
         if at_need:
-            pool_left = at_need
-    if fallback == "best_pitcher":
-        pool_left = [p for p in pool_left if "P" in position_groups_of(p)] or pool_left
-    elif fallback == "best_hitter":
-        pool_left = [p for p in pool_left if "P" not in position_groups_of(p)] or pool_left
-    elif fallback == "best_need" and needs and due is None:
+            pool_left, at_due = at_need, True
+    kind = ""
+    missing = ""
+    if not at_due and fallback in ("best_pitcher", "best_hitter"):
+        want_pitcher = fallback == "best_pitcher"
+        narrowed = [p for p in pool_left if ("P" in position_groups_of(p)) == want_pitcher]
+        if narrowed:
+            pool_left, kind = narrowed, ("pitcher" if want_pitcher else "hitter")
+        else:
+            missing = "pitcher" if want_pitcher else "hitter"
+    elif not at_due and fallback == "best_need" and needs:
         keys = {n["position"] for n in needs}
-        pool_left = [p for p in pool_left if position_groups_of(p) & keys] or pool_left
-    score = potential_score if fallback == "highest_potential" else prospect_score
+        narrowed = [p for p in pool_left if position_groups_of(p) & keys]
+        if narrowed:
+            pool_left, kind = narrowed, "need"
+        else:
+            missing = "player at a position you still need"
+    ceiling = fallback == "highest_potential"
+    score = potential_score if ceiling else prospect_score
     pick = max(pool_left, key=lambda p: (score(p), str(p.get("player_id") or "")))
     pid = str(pick.get("player_id") or "")
+
+    # Say what it actually took, from the filters that applied.
+    best = "highest-ceiling" if ceiling else "best"
+    if at_due:
+        what = (
+            f"the {best} {due['position']} available "
+            f"(your need by round {int(due['by_round'])})"
+        )
+    elif kind == "pitcher":
+        what = "the best pitcher available"
+    elif kind == "hitter":
+        what = "the best hitter available"
+    elif kind == "need":
+        what = "the best player at a position you still need"
+    elif ceiling:
+        what = "the player with the highest ceiling"
+    else:
+        what = "the best player available"
+    if missing:
+        what += f" (no {missing} was left)"
     if board.get("entries"):
         reason = "Nobody on your board could be taken"
         if skipped:
             reason += " (" + "; ".join(text for _, text in skipped) + ")"
-        reason += f", so it took {FALLBACKS.get(fallback, FALLBACKS[DEFAULT_FALLBACK])}"
+        reason += f", so it took {what}"
     else:
-        reason = f"Your board has no players, so it took {FALLBACKS.get(fallback, FALLBACKS[DEFAULT_FALLBACK])}"
-    if due is not None and due["position"] in position_groups_of(pick):
-        reason += f" at {due['position']} (your need by round {int(due['by_round'])})"
+        reason = f"Your board has no players, so it took {what}"
     if capped_out:
         reason += "; every player left is at a position you limited"
     return BoardChoice(pid, "fallback", reason + ".")

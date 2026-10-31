@@ -1583,10 +1583,15 @@ def _tell_owner_of_pick(
         if not rule.enabled:
             return
         picker = "your draft board" if board else "the CPU"
+        # The board's reason names the players on it, and a club's
+        # notification history is not private: point to the board instead.
+        detail = (
+            "See My Board on the Draft page for why." if board else reason
+        )
         message = (
             f"Round {result.get('round')}, pick {result.get('overall')}: "
             f"{_WHY_TEXT.get(why, 'A pick was made for you')}, so {picker} took {who}. "
-            f"{reason}"
+            f"{detail}"
         )
         append_history(team_id, [NotificationEvent(
             rule_id=DRAFT_PICK_RULE_ID,

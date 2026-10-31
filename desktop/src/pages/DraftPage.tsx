@@ -183,7 +183,9 @@ export function DraftPage() {
           </TabsContent>
 
           {boardTeamId && state.data?.year && (
-            <TabsContent value="board">
+            // Kept mounted, so unsaved board edits survive a trip to the
+            // Now tab to star a player.
+            <TabsContent value="board" forceMount className="data-[state=inactive]:hidden">
               <DraftBoardTab teamId={boardTeamId} year={state.data.year} />
             </TabsContent>
           )}
