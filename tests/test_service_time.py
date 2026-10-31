@@ -81,12 +81,19 @@ def test_a_new_contract_carries_his_service(league, monkeypatch):
 
 
 def test_arbitration_reads_the_ledger_instead_of_adding_a_year(league):
+    """The rollover's arbitration and the Offseason page's count (8.7.4)
+    share ``_offseason_service_days``."""
+
     import inspect
 
     from services import offseason_finance_flow as off
 
-    src = inspect.getsource(off._apply_arbitration_updates)
-    assert "service_ledger.get(str(player_id)" in src
+    contract = {"service_time_days": 500}
+    assert off._offseason_service_days("Z", contract, {"Z": 400}) == 400
+    assert off._offseason_service_days("Q", contract, {"Z": 400}) == 0
+    assert off._offseason_service_days("Z", contract, None) == 500 + off._OFFSEASON_SERVICE_DAYS
+    for fn in (off._apply_arbitration_updates, off.collect_offseason_finance_overview):
+        assert "_offseason_service_days(" in inspect.getsource(fn)
 
 
 def test_seed_new_league_credits_active_players_by_age(league, monkeypatch):

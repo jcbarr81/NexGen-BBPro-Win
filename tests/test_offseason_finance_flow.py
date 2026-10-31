@@ -813,3 +813,111 @@ def test_full_offseason_sequence_multi_owner_queue_apply_and_rollover(tmp_path):
         data_dir=data_dir,
     )
     assert rollover["processed"] >= 1
+
+
+# --- 8.7.4: the arbitration count matches what the rollover will do --------
+
+_ALL_ADVANCED = {
+    "owner_revenue": "advanced",
+    "owner_market_model": "basic",
+    "owner_budgets": "advanced",
+    "owner_expenses": "advanced",
+    "gm_contracts": "advanced",
+    "gm_payroll_rules": "basic",
+    "gm_arbitration": "advanced",
+    "gm_free_agency": "advanced",
+    "gm_roster_cost_enforcement": "warn",
+    "gm_finance_ai": "advanced",
+}
+
+
+def _arb_league(tmp_path, *, arbitration="advanced", contracts=None):
+    data_dir = tmp_path / "league-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    ensure_financial_defaults(data_dir=data_dir, league_id="test")
+    update_financial_settings(
+        enabled=True,
+        preset="custom",
+        path=data_dir / "league_financial_settings.json",
+        league_id="test",
+        modules={**_ALL_ADVANCED, "gm_arbitration": arbitration},
+    )
+    contract = {
+        "team_id": "AAA",
+        "annual_salary": 3_000_000,
+        "arb_eligible": False,
+        "fa_year": 2031,
+        "options": [],
+    }
+    players = contracts or {
+        # A walk-year veteran: three seasons once this one is counted.
+        "P1": {**contract, "years_left": 1, "service_time_days": 550},
+        # Two years left, 2 seasons + 120 days: a super-two (advanced only).
+        "P2": {**contract, "years_left": 2, "service_time_days": 300},
+        # Too young for either.
+        "P3": {**contract, "years_left": 1, "service_time_days": 100},
+    }
+    (data_dir / "contracts.json").write_text(
+        json.dumps({"version": 1, "players": players}), encoding="utf-8"
+    )
+    (data_dir / "team_financials.json").write_text(
+        json.dumps({"version": 1, "season_year": 2030, "teams": {"AAA": {}}}),
+        encoding="utf-8",
+    )
+    (data_dir / "season_state.json").write_text(
+        json.dumps({"phase": "OFFSEASON"}), encoding="utf-8"
+    )
+    return data_dir
+
+
+def test_no_arbitration_candidates_when_arbitration_is_off(tmp_path):
+    data_dir = _arb_league(tmp_path, arbitration="off")
+    overview = collect_offseason_finance_overview(data_dir=data_dir, league_id="test")
+    assert overview["arbitration_enabled"] is False
+    assert overview["arbitration_candidates"] == 0
+    assert overview["contracts_expiring"] == 2
+
+
+def test_arbitration_candidates_follow_the_rollovers_rule(tmp_path):
+    advanced = collect_offseason_finance_overview(
+        data_dir=_arb_league(tmp_path / "a"), league_id="test"
+    )
+    assert advanced["arbitration_enabled"] is True
+    assert advanced["arbitration_candidates"] == 2  # the veteran + the super-two
+    basic = collect_offseason_finance_overview(
+        data_dir=_arb_league(tmp_path / "b", arbitration="basic"), league_id="test"
+    )
+    assert basic["arbitration_candidates"] == 1  # no super-twos on basic
+
+
+def test_arbitration_candidates_read_the_service_time_ledger(tmp_path):
+    """With a ledger the season is already counted (8.5.1): no extra year."""
+
+    data_dir = _arb_league(
+        tmp_path,
+        arbitration="basic",
+        contracts={
+            "P1": {"team_id": "AAA", "years_left": 1, "annual_salary": 3_000_000,
+                   "service_time_days": 550},
+        },
+    )
+    (data_dir / "service_time.json").write_text(
+        json.dumps({"version": 1, "players": {"P1": 400}}), encoding="utf-8"
+    )
+    overview = collect_offseason_finance_overview(data_dir=data_dir, league_id="test")
+    assert overview["arbitration_candidates"] == 0
+    (data_dir / "service_time.json").write_text(
+        json.dumps({"version": 1, "players": {"P1": 516}}), encoding="utf-8"
+    )
+    overview = collect_offseason_finance_overview(data_dir=data_dir, league_id="test")
+    assert overview["arbitration_candidates"] == 1
+
+
+def test_no_arbitration_candidates_once_the_workflow_has_run(tmp_path):
+    data_dir = _arb_league(tmp_path)
+    (data_dir / "offseason_finance_state.json").write_text(
+        json.dumps({"years": {"2029": {"completed": True}}}), encoding="utf-8"
+    )
+    overview = collect_offseason_finance_overview(data_dir=data_dir, league_id="test")
+    assert overview["workflow_completed"] is True
+    assert overview["arbitration_candidates"] == 0

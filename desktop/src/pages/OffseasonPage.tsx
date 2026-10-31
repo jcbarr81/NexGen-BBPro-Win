@@ -131,7 +131,11 @@ function OffseasonFlowBody() {
           <Metric label="Expiring" value={String(ov.contracts_expiring ?? 0)} />
           <Metric
             label="Arb candidates"
-            value={String(ov.arbitration_candidates ?? 0)}
+            value={
+              ov.arbitration_enabled === false
+                ? "Off"
+                : String(ov.arbitration_candidates ?? 0)
+            }
           />
           <Metric label="Unsigned" value={String(ov.unsigned_players ?? 0)} />
         </CardContent>

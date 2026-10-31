@@ -1521,7 +1521,13 @@ service time (only qualifying offers hold him); owners make no decision.
   effect at the next rollover).
 
 **Status:** Open. Owner said to leave the current behaviour alone for now
-(alpha-test stays off).
+(alpha-test stays off). Fixed on the way (8.7.4): the Offseason page's
+"Arb candidates" count, and the "N arbitration case(s) to resolve" nudge
+built on it, counted every walk-year veteran even with arbitration off
+(about 80 in alpha-test) and added a season the service-time ledger had
+already counted. It now uses the rollover's own rule
+(`_arbitration_runs`, `_offseason_service_days`, `_is_arb_eligible`), shows
+**Off** when arbitration is off, and drops to 0 once the workflow has run.
 
 ## 65. Free agency: owners lose players they appear to be leading (owner feedback, 2026-10-30)
 
