@@ -1522,3 +1522,126 @@ service time (only qualifying offers hold him); owners make no decision.
 
 **Status:** Open. Owner said to leave the current behaviour alone for now
 (alpha-test stays off).
+
+## 65. Free agency: owners lose players they appear to be leading (owner feedback, 2026-10-30)
+
+alpha-test owners (El_Jayel, 2026-10-26 and 10-30): "I had 6 offers that I
+was leading on ... now 5 of them signed elsewhere without any chance to
+counter"; "Sometimes I'm outbid and I can still counter. Sometimes the player
+straight up signs elsewhere."
+
+**What happened (alpha-test's 2027 window, read 2026-10-30).** COL lost 7
+players it was shown leading. Every one: COL offered more years at a lower
+salary (e.g. 3 x $5.25M), so its total was the biggest and the card said it
+led; but a player only accepts an offer at 95% or more of his ask (rules 1,
+`contract_negotiator.evaluate_extension_offer`), and on his patience day he
+signed the best *acceptable* offer, a smaller total from a CPU club that paid
+his salary (IND 2 x $6.68M). MIL lost a $21M x 3 offer to HOU's $14.1M x 2:
+a player 33+ refuses a deal longer than his preferred length + 1.
+
+**Root causes (code).**
+- "Leading" is the biggest total among all offers
+  (`fa_negotiations.list_team_negotiations` ~:282), and the Spotlight "you
+  lead" line (`api/routers/_spotlight.py` ~:207) and the outbid notice
+  (`fa_window_notices.py` ~:189) use the same leader; the resolver only
+  considers acceptable offers (`_resolve`).
+- The decision day is hidden: each player has a fixed patience day 1-13
+  (`_window_patience`), counted from when the negotiation opened (CPU clubs
+  open most on day 1). The card says "decides <window deadline>", which is
+  wrong for nearly everyone.
+- A CPU bid can be added and win in the same processing pass: no last look.
+- No notice after a loss: the `fa_signed_elsewhere` notification setting
+  exists (`notification_settings.py`) but nothing sends it (the window passes
+  no `notify_fn` to `process_negotiations`).
+- The offer dialog computes an accept/counter verdict (evaluate endpoint) but
+  never shows it. Under rules 2 (8.6.0, alpha's next window) the hidden
+  minimum makes all of this less visible still.
+
+**Plan (one release, MINOR).**
+1. "Leading" = the best offer the player would accept. Under rules 2, an
+   offer at or above the shown ask counts as acceptable; one below it shows
+   "below his ask: may not be enough" without revealing the hidden minimum.
+   A rules 1 lowball shows "below his ask: he won't sign this".
+2. Replace the deadline with a status: "could sign any day now" once past his
+   patience day, else "decides by day X" (or a softer hint, if the exact day
+   should stay hidden).
+3. Last look: a CPU bid that takes the lead cannot sign the player in the
+   pass it appears; the beaten leader gets the outbid notice and one day.
+4. Send "X signed with <club> for <years> x <salary>" to every owner who bid
+   (the `fa_signed_elsewhere` setting), and "you signed X".
+5. Show the age/length rule in the offer dialog (33+: preferred length).
+6. Help page / tutorial: "How do free agents decide?"
+
+**Also found:** 16 alpha-test negotiations were still `open` after the window
+closed (day 14 of 14, deadline 2026-11-02), e.g. COL's P7617, although the
+final day should force every player to sign or close. Check why they did not
+resolve and what settles them (the regular-season daily hook?).
+
+## 66. Bench players ask too much in free agency (owner feedback, 2026-10-30)
+
+"Even bench players with 45 OVR are asking for $5mil a season. That's a lot on
+a $120mil cap." The free-agent ask is the full open-market value
+(`contract_negotiator.asking_salary`; every window free agent priced as a
+6-year veteran), from the convex curve 0.8M + 39.2M x ((q - 35) / 40)^2.2
+(`contracts_service`). Its zero point q=35 sits about five standard
+deviations below the big-league mean (~52), so replacement-level players
+(q ~47) ask ~$3.6M, q 50 ~$5.3M, an average regular (q 52) ~$6.8M. A full
+roster of average regulars at market would cost ~$175M against the $120M
+threshold; alpha's $45-65M payrolls look cheap only because its creation
+contracts are ~20% of market (owner chose to let them expire).
+
+**Plan (owner decision, MINOR):** re-anchor the curve so replacement level
+asks near the $800K minimum, an average regular perhaps $3-4M, and stars stay
+about where they are (e.g. raise the zero point to q ~44-46). It moves every
+price (FA asks, extensions, CPU bids, arbitration): show the owner a table of
+old vs new asks first, and land it before alpha-test's next window. 8.6.2
+already moves pitchers to the shared overall from the next window.
+
+## 67. Show positions on your free-agent bids, and what you still need (owner request, 2026-10-26)
+
+"Can we get the position of the players we submitted bids to. I can't remember
+what positions I still need to bid on." Today the Your negotiations card
+(`FreeAgencyPage.tsx` YourNegotiationsCard) and My Team's offers card
+(`TeamDetailPage.tsx` MyFaOffersCard) show the name only; the router
+(`api/routers/free_agency.py`, team negotiations ~:1003) already loads each
+player but adds only `player_name`.
+
+**Plan:** add `primary_position`, `is_pitcher` and the SP/RP role to the
+payload (and `FaNegotiationSummary` in `lib/api.ts`), show a position badge on
+both cards, and show "still need" chips on the Free Agency page from the
+roster-holes check (`services/roster_shortfall.py`, `missing_positions` /
+`open_spots`, today shown only on the Roster page in the offseason); a chip
+sets the page's position filter. Small.
+
+## 68. Drag-and-drop pitcher roles, with swap (owner request, 2026-10-26)
+
+"Could we be able to drag and slide our pitcher roles around? And also
+implement a swap mechanism for pitchers in role slots instead of just the drop
+down?" The Pitching Staff editor (`LineupPage.tsx` PitchingTab) has a role
+dropdown and a pitcher dropdown per row; moving a pitcher to a taken slot
+means clearing that slot first. The pitcher list below is read-only.
+
+**Plan:** reuse the batting order / field diagram drag-and-drop (`@dnd-kit`,
+`assignPlayerToPosition`, `components/lineup/DiamondDiagram.tsx`): each role
+slot a drop target, each assigned pitcher draggable, the list below draggable
+too; dropping on a filled slot swaps the two pitchers. Keep the dropdowns as
+the keyboard fallback. Medium.
+
+## 69. Choose table columns; see every pitch rating (owner request, 2026-10-26)
+
+ksubarton: "Need to be able to edit/change the columns on home roster/free
+agency pages to see all pitches (or maybe a 2nd page that just shows
+pitches)." No column picker exists anywhere in the client. Roster, Free
+Agency and Players show only FB among the pitches; the Lineup pitcher list
+shows FB/SL/CU/CB/SI; the Pitchers page (`PitchersPage.tsx`) shows all of
+them (FB, SL, CU, CB, SI, SCB, KN). The free-agent list's server sends only
+fb/control/movement/endurance (`api/routers/free_agency.py` summary keys); the
+roster API already sends every pitch. The player profile's pitch list leaves
+out `cb` and `scb` (`player_profile_view_model.py`), and labels `si`
+"Splitter" where other pages say SI: check which is right.
+
+**Plan:** a shared `ColumnPicker` (checkbox popover) saving the chosen columns
+per page with `usePersistedState`; each page gets a full column catalogue
+(today's columns as the default) on Roster, Free Agency, Players, Pitchers
+and Lineup; add the pitch keys to the free-agent summary; add `cb`/`scb` to
+the profile. Medium. Until then, point owners to the Pitchers page.
