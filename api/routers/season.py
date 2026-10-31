@@ -3389,19 +3389,32 @@ def _advance_draft_for_league(league: str) -> Optional[Dict[str, Any]]:
     # Turning the clock on is what opts a league into hands-off operation, and
     # it is the same switch that lets the CPU pick for a late owner — so a
     # league cannot start auto-drafting merely because this shipped.
-    if int(settings.pick_clock_hours or 0) <= 0:
+    clock_on = int(settings.pick_clock_hours or 0) > 0
+    if is_human and draft_router._autodraft_ready(year, state, on_clock):
+        # The owner told his draft board to pick the moment he is up (8.7.0).
+        # That is his own opt-in, so it holds with the clock off too; but
+        # without a clock the CPU teams behind him still wait for the
+        # commissioner.
+        if draft_router._pick_for_owner(year, state, on_clock, why="autodraft") is None:
+            return None
+        if not clock_on:
+            state = draft_state.load_state(year) or state
+            row = {"league": league, "action": "board_autodraft", "picks_made": 1}
+            announced = _announce_draft_clock(league, year, state, settings, human_ids)
+            if announced:
+                row["announced"] = announced.get("announced")
+            return row
+        acted = "board_autodraft"
+    elif not clock_on:
         return _announce_draft_clock(league, year, state, settings, human_ids)
-
-    acted = ""
-    if not is_human:
+    elif not is_human:
         acted = "advanced_cpu_picks"
     elif draft_clock.is_expired(state, on_clock, settings.pick_clock_hours):
-        # Their time is up. Make the pick for them, then carry on to the next
-        # human so the draft does not stop again on the CPU teams behind them.
-        best = draft_router._best_available(year, state)
-        if not best:
+        # Their time is up. Make the pick for them (from their draft board,
+        # when they have one), then carry on to the next human so the draft
+        # does not stop again on the CPU teams behind them.
+        if draft_router._pick_for_owner(year, state, on_clock, why="clock") is None:
             return None
-        draft_router._do_pick(year, state, player_id=str(best.get("player_id", "")))
         acted = "clock_expired"
     else:
         # A human is on the clock with time left. Nothing to do but make sure

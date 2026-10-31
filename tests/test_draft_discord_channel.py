@@ -101,7 +101,7 @@ def test_auto_advance_announces_its_run_once(monkeypatch):
     state = {"year": 2027, "round": 1, "overall_pick": 1, "order": ["AAA", "BBB", "CCC"], "selected": []}
     announced = []
 
-    def fake_do_pick(year, st, *, player_id, season_date=None, announce=True):
+    def fake_do_pick(year, st, *, player_id, season_date=None, announce=True, **_):
         assert announce is False
         team = D._team_on_clock(st)
         st["selected"] = list(st["selected"]) + [{"overall": st["overall_pick"], "team_id": team}]

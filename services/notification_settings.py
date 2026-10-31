@@ -307,6 +307,12 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 "default_notify": True,
                 "default_stop": False,
             },
+            {
+                "id": "draft_pick_made",
+                "label": "A draft pick was made for you (draft board or pick clock)",
+                "default_notify": True,
+                "default_stop": False,
+            },
         ],
     },
 ]

@@ -25,7 +25,7 @@ def draft(monkeypatch):
     def fake_load_state(year):
         return state
 
-    def fake_do_pick(year, st, *, player_id, season_date=None, announce=True):
+    def fake_do_pick(year, st, *, player_id, season_date=None, announce=True, **_):
         team = D._team_on_clock(st)
         made.append(team)
         st["selected"] = list(st.get("selected") or []) + [
@@ -40,6 +40,9 @@ def draft(monkeypatch):
     monkeypatch.setattr(D, "_do_pick", fake_do_pick)
     monkeypatch.setattr(D, "_best_available", lambda y, s: {"player_id": f"P{s['overall_pick']}"})
     monkeypatch.setattr(D, "_load_settings_rounds", lambda: 2)
+    # No club has a draft board here, and nobody is notified (8.7.0).
+    monkeypatch.setattr(D.draft_board, "has_board", lambda *a, **k: False)
+    monkeypatch.setattr(D, "_tell_owner_of_pick", lambda *a, **k: None)
     monkeypatch.setattr(
         "services.team_ownership.human_owned_team_ids_strict", lambda *a, **k: set(HUMANS)
     )

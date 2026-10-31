@@ -431,7 +431,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "The pick clock",
-                "<p>When it's your team's turn you'll get a post in the league's Discord channel naming the round, the pick and your deadline (shown in your own local time), and the draft page shows a live countdown. If the deadline passes without a pick, the CPU takes the best available player for you and the draft moves on to the next owner.</p>"
+                "<p>When it's your team's turn you'll get a post in the league's Discord channel naming the round, the pick and your deadline (shown in your own local time), and the draft page shows a live countdown. If the deadline passes without a pick, your <b>draft board</b> picks for you (see the Draft Board guide); with no board, the CPU takes the best available player. Either way the draft moves on to the next owner.</p>"
                 "<p>The commissioner sets the clock length under <b>Admin → Draft configuration</b>. At <b>0</b> there is no deadline: the draft waits for each owner and never advances on its own.</p>",
             ),
             TutorialStep(
@@ -454,6 +454,51 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Results & history",
                 "<p>Completed picks are stored per season and visible from the History tab or <b>League → History</b>. Export via <b>Admin → Utilities → Reports</b> to share.</p>",
+            ),
+        ],
+    ),
+    Tutorial(
+        tutorial_id="draft_board",
+        title="Draft Board",
+        summary="Tell the draft whom to take for you when your clock runs out, or let it draft for you.",
+        steps=[
+            TutorialStep(
+                "What the board is for",
+                "<p>When your pick clock runs out, a pick is made for you. Your <b>draft board</b> decides who: a ranked list of prospects plus a few rules. Without one, the CPU takes the best player left by overall, whatever your club needs.</p>"
+                "<p>Open <b>Transactions &rarr; Draft &rarr; My Board</b>. The board is <b>private</b>: nobody else can see it, the commissioner included. You can build it as soon as the draft class is published, before the draft opens.</p>"
+                "<p>The board is used when your clock runs out, when the commissioner auto-picks for you or finishes the draft, and when you press <b>Auto-pick</b> yourself.</p>",
+            ),
+            TutorialStep(
+                "Building your list",
+                "<p>On the <b>Now</b> tab, click the <b>star</b> next to any prospect in the draft class list to add him to the end of your board (click again to remove). On <b>My Board</b>, drag players into your order and add a private note to each.</p>"
+                "<p>Players another club takes stay on your board, greyed out with who took them. The board simply goes down the list to the first player it can take.</p>"
+                "<p>For each player you can also set:</p>"
+                "<ul>"
+                "<li><b>Not before</b> a round: don't reach for a sleeper too early.</li>"
+                "<li><b>Group</b> A-H: of a group, only one player is ever taken (\"one of these three shortstops\").</li>"
+                "</ul>"
+                "<p><b>Tiers</b> (optional): turn on <b>Use tiers</b> and press <b>new tier here</b> on a row. Players in a tier count as equal, and the board takes the one who fills a need, then the best overall.</p>",
+            ),
+            TutorialStep(
+                "Needs and limits",
+                "<p><b>At most</b>: a cap per position, e.g. at most 2 C. A position that is full is skipped. IF covers 1B/2B/3B/SS, OF covers LF/CF/RF, and P is any pitcher.</p>"
+                "<p><b>Needs</b>: e.g. at least 1 SS by round 4. From round 4 on, until you have one, the pick must be a shortstop: the highest one on your board, or the best one left.</p>"
+                "<p>Every pick you make in this draft counts, whether you made it or the board did.</p>"
+                "<p><b>When nobody on my list can be taken</b>: choose the best player available, the best pitcher, the best hitter, the highest ceiling, or the best player at a position you still need.</p>",
+            ),
+            TutorialStep(
+                "Auto-draft",
+                "<ul>"
+                "<li><b>Only if my clock runs out</b> (the default): you make your own picks; the board is the backup.</li>"
+                "<li><b>Pick from my board when I'm up</b>: the moment you're on the clock, the board takes a player from your list. If nobody on your list can be taken, the clock runs as usual and you pick.</li>"
+                "<li><b>Auto-draft everything</b>: the board makes every remaining pick the moment you're up. For when you'll be away.</li>"
+                "</ul>"
+                "<p>Auto-draft works even when the league has no pick clock. Picks are checked every ten minutes, so an auto-draft pick can take a few minutes to appear.</p>",
+            ),
+            TutorialStep(
+                "Seeing what it will do",
+                "<p>The top of <b>My Board</b> shows what the board would take at your next pick if it picked right now, and why (who it passed over, and which rule). It changes as other clubs pick. Save your board to update it.</p>"
+                "<p>Each pick the board makes is listed under <b>Picks your board made</b> with its reason, and you get a notification (rule: <i>A draft pick was made for you</i>). Other owners only see that the pick came from your draft board.</p>",
             ),
         ],
     ),

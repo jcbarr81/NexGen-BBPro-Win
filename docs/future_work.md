@@ -1645,3 +1645,19 @@ per page with `usePersistedState`; each page gets a full column catalogue
 (today's columns as the default) on Roster, Free Agency, Players, Pitchers
 and Lineup; add the pitch keys to the free-agent summary; add `cb`/`scb` to
 the profile. Medium. Until then, point owners to the Pitchers page.
+
+## 70. CPU clubs draft by need (follow-up to draft boards, 8.7.0)
+
+Owners' draft boards (8.7.0, `services/draft_board.py`) choose a pick from a
+ranked list plus position limits and needs. CPU clubs still take the best
+player left by overall (`_best_available` in `api/routers/draft.py`), so a
+CPU club can draft five catchers in a row. The same `draft_board.choose`
+could pick for a CPU club from a board built on the fly: no list, position
+limits from what its organization already holds at each position, and a
+need for any position it is thin at. Kept out of 8.7.0 so that release
+changed only what owners control.
+
+**Plan:** a `cpu_board(team_id)` that reads the club's organization depth by
+position and returns limits/needs, used by the CPU branch of `auto_advance`;
+measure on a copy of alpha-test that the CPU still takes most of the top 30.
+Small to medium.

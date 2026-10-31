@@ -90,10 +90,18 @@ def _pick_line(pick: Mapping[str, Any]) -> str:
     name = str(pick.get("name") or pick.get("player_id") or "?").strip()
     position = str(pick.get("position") or "").strip()
     who = f"{name} ({position})" if position else name
+    # A pick made for an owner says so (8.7.0); the reason is his alone.
+    how = _SOURCE_TEXT.get(str(pick.get("source") or ""), "")
     return (
         f"Round {int(pick.get('round', 1) or 1)}, pick {int(pick.get('overall', 0) or 0)}: "
-        f"{team_display_name(str(pick.get('team_id') or ''))} select {who}"
+        f"{team_display_name(str(pick.get('team_id') or ''))} select {who}{how}"
     )
+
+
+_SOURCE_TEXT = {
+    "board": " (from their draft board)",
+    "clock": " (auto-pick: the clock ran out)",
+}
 
 
 def build_pick_messages(

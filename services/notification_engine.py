@@ -873,6 +873,7 @@ def _rule_title(rule_id: str) -> str:
         "schedule_regenerated": "Schedule regenerated",
         "draft_approaching": "Draft approaching",
         "draft_results_posted": "Draft results posted",
+        "draft_pick_made": "Draft pick made for you",
     }
     return titles.get(rule_id, rule_id.replace("_", " ").title())
 

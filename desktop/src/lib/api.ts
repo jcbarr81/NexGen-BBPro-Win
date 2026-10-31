@@ -933,6 +933,9 @@ export interface DraftSelection {
   overall_raw?: number | null;
   overall_display?: number | null;
   overall_stars_text?: string | null;
+  /** A pick made for an owner (8.7.0): from his draft board, or best
+   *  available when his clock ran out without one. */
+  source?: "board" | "clock";
 }
 
 export interface DraftState {
@@ -1004,6 +1007,74 @@ export interface DraftPool {
   year: number;
   count: number;
   prospects: DraftProspect[];
+}
+
+/** An owner's draft board (8.7.0): what to take when a pick is made for
+ *  him. Private to the club's owner. */
+export type DraftBoardAutodraft = "off" | "board" | "all";
+
+export interface DraftBoardEntry {
+  player_id: string;
+  note: string;
+  not_before_round: number | null;
+  /** Of a group (A-H), only one player is ever taken. */
+  group: string | null;
+  tier: number;
+}
+
+export interface DraftBoardNeed {
+  position: string;
+  count: number;
+  by_round: number;
+}
+
+export interface DraftBoardSettings {
+  use_tiers: boolean;
+  position_limits: Record<string, number>;
+  needs: DraftBoardNeed[];
+  fallback: string;
+  autodraft: DraftBoardAutodraft;
+  updated_at?: string | null;
+}
+
+export interface DraftBoardRow extends DraftBoardEntry {
+  prospect: DraftProspect | null;
+  taken: { team_id: string; overall: number; round: number } | null;
+}
+
+export interface DraftBoardPickMade {
+  overall: number;
+  round: number;
+  player_id: string;
+  name: string;
+  why: "clock" | "autodraft" | "commissioner" | "owner";
+  reason: string;
+  at: string;
+}
+
+export interface DraftBoardView {
+  year: number;
+  team_id: string;
+  board: DraftBoardSettings;
+  entries: DraftBoardRow[];
+  made: DraftBoardPickMade[];
+  /** What the board would take at the club's next pick if nothing changed. */
+  preview: {
+    player_id: string;
+    name: string;
+    source: "board" | "fallback";
+    reason: string;
+    round: number;
+  } | null;
+  next_pick: { overall: number; round: number } | null;
+  drafted_counts: Record<string, number>;
+  draft: { exists: boolean; complete: boolean; rounds: number; on_clock: boolean };
+  options: {
+    positions: string[];
+    groups: string[];
+    fallbacks: Array<{ id: string; label: string }>;
+    autodraft: DraftBoardAutodraft[];
+  };
 }
 
 export interface DraftAutoAdvanceResult {
@@ -3518,6 +3589,21 @@ export const api = {
     apiRequest<DraftPickResult>("/draft/pick", {
       method: "POST",
       body: { player_id, year },
+    }),
+  draftBoard: (teamId: string, year?: number) => {
+    const qs = year ? `?year=${year}` : "";
+    return apiRequest<DraftBoardView>(
+      `/draft/board/${encodeURIComponent(teamId)}${qs}`,
+    );
+  },
+  saveDraftBoard: (
+    teamId: string,
+    year: number,
+    board: DraftBoardSettings & { entries: DraftBoardEntry[] },
+  ) =>
+    apiRequest<DraftBoardView>(`/draft/board/${encodeURIComponent(teamId)}`, {
+      method: "PUT",
+      body: { year, board },
     }),
   draftAutoPick: (year?: number) =>
     apiRequest<DraftPickResult>("/draft/auto-pick", {

@@ -62,9 +62,10 @@ PINNED_SCALE_1 = {
 # 8.3.0: the Player Avatars tutorial's "New club, new colors" step; for
 # 8.4.0: the League Hub tutorial's "Postseason stats" step; for 8.5.0: the
 # Finance tutorial's "Extending your players" step; for 8.6.0: the Free
-# Agency tutorial's asking-price wording).
+# Agency tutorial's asking-price wording; for 8.7.0: the Draft Board guide
+# and the pick-clock step's draft-board wording).
 PINNED_SCALE_1_TUTORIALS = (
-    "dcce575f530f1bc19b7829df71b45883158ef4d4794d060d55425a581499873d"
+    "c2204a098344ca7c5148b118a26621d217ac15c8712dfb040727f11c0ac915ff"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

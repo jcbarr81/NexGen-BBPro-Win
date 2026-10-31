@@ -445,8 +445,22 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
   to accept, with the reasons, and updates live as you change the offer;
   **Compare** puts the two sides side by side. Owners accept/reject/withdraw;
   commissioners can **Veto**, **Force approve**, or **Approve**.
-- **Draft** — **Now** (live state/order), **History** (completed picks), and an
-  **Admin** tab (Initialize, Generate pool, Manual pick, Reset).
+- **Draft** — **Now** (live state/order), **History** (completed picks), **My
+  Board** (owners), and an **Admin** tab (Initialize, Generate pool, Manual pick,
+  Reset).
+  - **My Board** (8.7.0) is the owner's private draft board: who to take when a
+    pick is made for the club (the pick clock ran out, the commissioner
+    auto-picked or finished the draft, or the owner's own Auto-pick). Star a
+    prospect in the draft class list to add him; drag to rank; per player a
+    private note, *not before round N* and a group (only one of a group is
+    taken). Rules: *at most N* per position (IF, OF and P cover families),
+    *at least N at a position by round R*, optional tiers (equal players: the
+    one filling a need, then the best overall), and what to take when nobody on
+    the list can be taken. **Auto-draft** can pick the moment the club is up,
+    from the list only or for every remaining pick. The top of the tab shows what
+    the board would take right now and why; picks it made are listed with their
+    reasons, and the owner gets a notification. Nobody else can see a board, the
+    commissioner included; picks it makes show a **board** tag.
 - **Activity** — the full transactions ledger, filterable by team and type.
 
 ---

@@ -24,8 +24,10 @@ import {
   FastForward,
   GraduationCap,
   Hourglass,
+  ListOrdered,
   Loader2,
   Sparkles,
+  Star,
   Timer,
   Trophy,
 } from "lucide-react";
@@ -45,6 +47,7 @@ import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { DraftTimingCard } from "@/components/DraftTimingCard";
+import { DraftBoardTab, useDraftBoardToggle } from "@/components/DraftBoardTab";
 import { StatCard } from "@/components/StatCard";
 import { StarRating } from "@/components/StarRating";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -66,12 +69,15 @@ import {
   TabsTrigger,
 } from "@/components/ui";
 
-type Scope = "now" | "history";
+type Scope = "now" | "history" | "board" | "admin";
 
 export function DraftPage() {
   const user = useAuthStore();
   const myTeamId = user.selectedTeamId ?? user.teamId ?? null;
   const isAdmin = user.role === "admin";
+  // A draft board belongs to the club the user owns (not one a
+  // commissioner is browsing): boards are private to their owner.
+  const boardTeamId = user.teamId || null;
   const [scope, setScope] = useState<Scope>("now");
 
   const state = useQuery({
@@ -145,6 +151,11 @@ export function DraftPage() {
           <TabsList>
             <TabsTrigger value="now">Now</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            {boardTeamId && (
+              <TabsTrigger value="board">
+                <ListOrdered className="mr-1 h-3.5 w-3.5" /> My Board
+              </TabsTrigger>
+            )}
             {isAdmin && <TabsTrigger value="admin">Admin</TabsTrigger>}
           </TabsList>
 
@@ -155,6 +166,7 @@ export function DraftPage() {
               myTeamId={myTeamId}
               teamById={teamById}
               isAdmin={isAdmin}
+              boardTeamId={boardTeamId}
             />
           </TabsContent>
 
@@ -169,6 +181,12 @@ export function DraftPage() {
               teamById={teamById}
             />
           </TabsContent>
+
+          {boardTeamId && state.data?.year && (
+            <TabsContent value="board">
+              <DraftBoardTab teamId={boardTeamId} year={state.data.year} />
+            </TabsContent>
+          )}
 
           {isAdmin && (
             <TabsContent value="admin">
@@ -187,12 +205,14 @@ function LiveDraftView({
   myTeamId,
   teamById,
   isAdmin,
+  boardTeamId,
 }: {
   state: DraftState;
   season: SeasonState | null;
   myTeamId: string | null;
   teamById: Map<string, Team>;
   isAdmin: boolean;
+  boardTeamId: string | null;
 }) {
   // The state ``round`` auto-increments past the final pick, so once
   // it exceeds the configured rounds the draft has produced its last
@@ -309,6 +329,7 @@ function LiveDraftView({
           onClockIsHuman={false}
           pickDeadline={null}
           isAdmin={isAdmin}
+          boardTeamId={boardTeamId}
           ownerPicksLeft={{ count: 0, teams: new Map(), estimate: false }}
         />
       </div>
@@ -374,6 +395,7 @@ function LiveDraftView({
         onClockIsHuman={!!state.on_clock_is_human && !draftComplete}
         pickDeadline={draftComplete ? null : (state.pick_deadline ?? null)}
         isAdmin={isAdmin}
+        boardTeamId={boardTeamId}
         ownerPicksLeft={ownerPicksLeft}
       />
 
@@ -529,10 +551,13 @@ function DraftControlsPanel({
   pickDeadline,
   isAdmin,
   ownerPicksLeft,
+  boardTeamId,
   scoutOnly = false,
 }: {
   /** Read-only: the class to scout, with no draft to act on. */
   scoutOnly?: boolean;
+  /** The user's own club, whose draft board the star adds to. */
+  boardTeamId: string | null;
   year: number;
   myTeamId: string | null;
   onClockTeamId: string | null;
@@ -571,6 +596,9 @@ function DraftControlsPanel({
     "desc",
   );
 
+  const board = useDraftBoardToggle(boardTeamId, year);
+  const showStar = !!boardTeamId && board.available;
+
   const poolQ = useQuery({
     queryKey: ["draft-pool", year],
     queryFn: () => api.draftPool(year, { available_only: true, limit: 1000 }),
@@ -584,6 +612,7 @@ function DraftControlsPanel({
     queryClient.invalidateQueries({ queryKey: ["team-roster"] });
     // The last pick ends the draft and moves the season phase.
     queryClient.invalidateQueries({ queryKey: ["season-state"] });
+    queryClient.invalidateQueries({ queryKey: ["draft-board"] });
   }
 
   const pickMut = useMutation({
@@ -688,6 +717,7 @@ function DraftControlsPanel({
   }
 
   const lastError =
+    board.toggle.error ||
     pickMut.error ||
     autoPickMut.error ||
     advanceToMyMut.error ||
@@ -902,6 +932,11 @@ function DraftControlsPanel({
               <thead className="sticky top-0 z-10 bg-surface">
                 <tr className="border-b border-border/60 text-[11px] uppercase tracking-wider text-muted">
                   {!scoutOnly && <th className="w-8 px-2 py-2"></th>}
+                  {showStar && (
+                    <th className="w-8 px-1 py-2" title="On your draft board">
+                      <Star className="mx-auto h-3 w-3" />
+                    </th>
+                  )}
                   <DraftHeader
                     label="Player"
                     keyId="name"
@@ -975,6 +1010,36 @@ function DraftControlsPanel({
                             className="h-3 w-3 accent-amber"
                             aria-label={`Select ${p.last_name}, ${p.first_name}`}
                           />
+                        </td>
+                      )}
+                      {showStar && (
+                        <td className="px-1 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              board.toggle.mutate(p.player_id);
+                            }}
+                            disabled={board.toggle.isPending}
+                            className="rounded-sm p-1 text-muted hover:text-amber disabled:opacity-50"
+                            title={
+                              board.onBoard.has(p.player_id)
+                                ? "On your draft board: click to remove"
+                                : "Add to the end of your draft board"
+                            }
+                            aria-label={
+                              board.onBoard.has(p.player_id)
+                                ? `Remove ${p.last_name} from your draft board`
+                                : `Add ${p.last_name} to your draft board`
+                            }
+                          >
+                            <Star
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                board.onBoard.has(p.player_id) && "fill-amber text-amber",
+                              )}
+                            />
+                          </button>
                         </td>
                       )}
                       <td className="px-3 py-2 font-semibold">
@@ -1379,6 +1444,16 @@ function PicksTable({
                     <span className="ml-1 text-[10px] uppercase tracking-wider text-muted">
                       {pick.primary_position}
                     </span>
+                  )}
+                  {pick.source === "board" && (
+                    <Badge tone="neutral" title="Picked by the club's draft board">
+                      board
+                    </Badge>
+                  )}
+                  {pick.source === "clock" && (
+                    <Badge tone="neutral" title="The pick clock ran out: best available">
+                      auto
+                    </Badge>
                   )}
                 </div>
               </td>

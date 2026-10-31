@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import csv
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
 
-from services import draft_clock, draft_state
+from services import draft_board, draft_clock, draft_state
 from services.trade_settings import current_league_year
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
@@ -323,6 +323,74 @@ def draft_state_view(
     }
 
 
+def _prospect_row(
+    prospect: Dict[str, Any], league_scale: Any, *, available: bool
+) -> Dict[str, Any]:
+    """One draft-pool prospect as the pages show him."""
+
+    pid = str(prospect.get("player_id", "")).strip()
+    is_pitcher = str(prospect.get("is_pitcher", "")).lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+    }
+    birthdate = str(prospect.get("birthdate", "") or "").strip()
+    age: Optional[int] = None
+    if birthdate:
+        try:
+            from datetime import date as _date
+
+            bd = _date.fromisoformat(birthdate[:10])
+            today = _date.today()
+            age = (
+                today.year
+                - bd.year
+                - ((today.month, today.day) < (bd.month, bd.day))
+            )
+        except Exception:
+            age = None
+    scale = display_scale_for(prospect, league_scale)
+    shown_overall = _prospect_shown_overall(
+        prospect, is_pitcher, scale
+    )["overall_display"]
+    # rating-scale: display payload; shows the ratings as stored on the
+    # page's scale (display_rating)
+    return {
+        "player_id": pid,
+        "first_name": prospect.get("first_name", ""),
+        "last_name": prospect.get("last_name", ""),
+        "primary_position": prospect.get("primary_position", ""),
+        "is_pitcher": is_pitcher,
+        "bats": prospect.get("bats", ""),
+        "throws": prospect.get("throws", ""),
+        "birthdate": birthdate,
+        "age": age,
+        "overall": shown_overall,
+        "available": available,
+        "ratings": {
+            k: display_rating(prospect, k, scale)
+            for k in (
+                "ch",
+                "ph",
+                "sp",
+                "eye",
+                "fa",
+                "arm",
+                "fb",
+                "sl",
+                "cu",
+                "cb",
+                "si",
+                "control",
+                "movement",
+                "endurance",
+            )
+            if prospect.get(k) not in (None, "")
+        },
+    }
+
+
 @router.get("/pool")
 def draft_pool_view(
     year: Optional[int] = Query(default=None),
@@ -361,68 +429,7 @@ def draft_pool_view(
         is_taken = pid in taken
         if available_only and is_taken:
             continue
-        is_pitcher = str(prospect.get("is_pitcher", "")).lower() in {
-            "1",
-            "true",
-            "yes",
-            "y",
-        }
-        birthdate = str(prospect.get("birthdate", "") or "").strip()
-        age: Optional[int] = None
-        if birthdate:
-            try:
-                from datetime import date as _date
-
-                bd = _date.fromisoformat(birthdate[:10])
-                today = _date.today()
-                age = (
-                    today.year
-                    - bd.year
-                    - ((today.month, today.day) < (bd.month, bd.day))
-                )
-            except Exception:
-                age = None
-        scale = display_scale_for(prospect, league_scale)
-        shown_overall = _prospect_shown_overall(
-            prospect, is_pitcher, scale
-        )["overall_display"]
-        # rating-scale: display payload; shows the ratings as stored on the
-        # page's scale (display_rating)
-        rows.append(
-            {
-                "player_id": pid,
-                "first_name": prospect.get("first_name", ""),
-                "last_name": prospect.get("last_name", ""),
-                "primary_position": prospect.get("primary_position", ""),
-                "is_pitcher": is_pitcher,
-                "bats": prospect.get("bats", ""),
-                "throws": prospect.get("throws", ""),
-                "birthdate": birthdate,
-                "age": age,
-                "overall": shown_overall,
-                "available": not is_taken,
-                "ratings": {
-                    k: display_rating(prospect, k, scale)
-                    for k in (
-                        "ch",
-                        "ph",
-                        "sp",
-                        "eye",
-                        "fa",
-                        "arm",
-                        "fb",
-                        "sl",
-                        "cu",
-                        "cb",
-                        "si",
-                        "control",
-                        "movement",
-                        "endurance",
-                    )
-                    if prospect.get(k) not in (None, "")
-                },
-            }
-        )
+        rows.append(_prospect_row(prospect, league_scale, available=not is_taken))
 
     rows.sort(key=lambda r: int(r.get("overall") or 0), reverse=True)
     return {"year": y, "count": len(rows), "prospects": rows[:limit]}
@@ -442,7 +449,7 @@ def draft_results_view(
 # Admin-only draft controls.
 from fastapi import Depends
 
-from ..security import require_bearer
+from ..security import require_bearer, require_team_owner
 
 
 def _require_admin(identity: Dict[str, Any] = Depends(require_bearer)) -> Dict[str, Any]:
@@ -843,6 +850,7 @@ def _announce_picks(year: int, picks: List[Dict[str, Any]], *, draft_complete: b
                     "player_id": pick.get("player_id"),
                     "name": name or pick.get("player_id"),
                     "position": prospect.get("primary_position") or "",
+                    "source": pick.get("source") or "",
                 }
             )
         league = path_utils.get_request_league() or path_utils.get_active_league_id() or ""
@@ -861,11 +869,14 @@ def _do_pick(
     player_id: str,
     season_date: Optional[str] = None,
     announce: bool = True,
+    source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Record a pick + commit it to the team's roster. Mutates ``state``.
 
     ``announce`` posts the pick to the draft channel; a caller making a run
-    of picks passes False and announces them together."""
+    of picks passes False and announces them together. ``source`` marks a
+    pick made for an owner (8.7.0): ``"board"`` from his draft board,
+    ``"clock"`` best available when his clock ran out without one."""
 
     order: List[str] = list(state.get("order") or [])
     seq = state.get("pick_sequence")
@@ -888,9 +899,10 @@ def _do_pick(
         team_id = order[(overall - 1) % len(order)]
 
     selected = list(state.get("selected") or [])
-    selected.append(
-        {"overall": overall, "round": rnd, "team_id": team_id, "player_id": player_id}
-    )
+    pick_entry = {"overall": overall, "round": rnd, "team_id": team_id, "player_id": player_id}
+    if source:
+        pick_entry["source"] = source
+    selected.append(pick_entry)
     state["selected"] = selected
     state["overall_pick"] = overall + 1
     if isinstance(seq, list) and seq:
@@ -957,6 +969,8 @@ def _do_pick(
         "commit": commit_summary,
         "draft_complete": _draft_complete(state, _load_settings_rounds()),
     }
+    if source:
+        result["source"] = source
     if announce:
         _announce_picks(year, [result], draft_complete=result["draft_complete"])
     return result
@@ -1130,8 +1144,16 @@ def auto_pick(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Draft is already complete.",
         )
-    _ensure_pick_authorized(identity, state)
+    team_on_clock = _ensure_pick_authorized(identity, state)
 
+    # A club with a draft board gets its board's pick (8.7.0), whoever asked.
+    if draft_board.has_board(year, team_on_clock):
+        mine = str(identity.get("t") or "").strip().upper() == team_on_clock.strip().upper()
+        result = _pick_for_owner(
+            year, state, team_on_clock, why="owner" if mine else "commissioner"
+        )
+        if result is not None:
+            return result
     best = _best_available(year, state)
     if not best:
         raise HTTPException(
@@ -1209,7 +1231,10 @@ def auto_advance(
     role = str(identity.get("r", "")).lower()
     from services.team_ownership import human_owned_team_ids_strict
 
-    human_ids = set() if include_humans else human_owned_team_ids_strict()
+    owner_ids = human_owned_team_ids_strict()
+    human_ids = set() if include_humans else owner_ids
+    # Picking for everyone: an owner's pick still comes from his board.
+    owner_ids = set(owner_ids or ())
     if human_ids is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1258,13 +1283,46 @@ def auto_advance(
         if stop_mode == "my_pick" and target_team and on_clock == target_team:
             stopped_reason = "reached_target"
             break
+        new_round = (
+            stop_mode == "end_of_round" and int(state.get("round", 1) or 1) != starting_round
+        )
         if str(on_clock).strip().upper() in human_ids:
-            # A real person is on the clock. Their pick is theirs to make.
-            stopped_reason = "human_on_clock"
-            break
-        if stop_mode == "end_of_round" and int(state.get("round", 1) or 1) != starting_round:
+            # A real person is on the clock. Their pick is theirs to make,
+            # unless they told their draft board to make it the moment
+            # they are up (8.7.0).
+            if new_round or not _autodraft_ready(year, state, on_clock):
+                stopped_reason = "human_on_clock"
+                break
+            try:
+                result = _pick_for_owner(
+                    year, state, on_clock, why="autodraft", announce=False
+                )
+            except HTTPException:
+                stopped_reason = "pick_failed"
+                break
+            if result is None:
+                stopped_reason = "pool_exhausted"
+                break
+            picks_made.append(result)
+            continue
+        if new_round:
             stopped_reason = "end_of_round"
             break
+
+        if str(on_clock).strip().upper() in owner_ids:
+            # The commissioner is finishing the draft for everyone.
+            try:
+                result = _pick_for_owner(
+                    year, state, on_clock, why="commissioner", announce=False
+                )
+            except HTTPException:
+                stopped_reason = "pick_failed"
+                break
+            if result is None:
+                stopped_reason = "pool_exhausted"
+                break
+            picks_made.append(result)
+            continue
 
         best = _best_available(year, state)
         if not best:
@@ -1351,3 +1409,343 @@ def admin_manual_pick(
     }
     _announce_picks(year, [result], draft_complete=_draft_complete(state, _load_settings_rounds()))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Draft boards (8.7.0): an owner's instructions for a pick made for him
+# (services.draft_board). Private to the club's owner, the commissioner
+# included.
+
+DRAFT_PICK_RULE_ID = "draft_pick_made"
+
+
+def _current_round(state: Dict[str, Any]) -> int:
+    overall = int(state.get("overall_pick", 1) or 1)
+    seq = state.get("pick_sequence")
+    if isinstance(seq, list) and seq and 0 <= overall - 1 < len(seq):
+        entry = seq[overall - 1]
+        if isinstance(entry, dict):
+            return int(entry.get("round", 1) or 1)
+    return int(state.get("round", 1) or 1)
+
+
+def _next_pick_of(
+    state: Dict[str, Any], team_id: str, rounds_total: int
+) -> Optional[Tuple[int, int]]:
+    """``(overall, round)`` of the club's next pick, or ``None``."""
+
+    team = str(team_id or "").strip().upper()
+    overall = int(state.get("overall_pick", 1) or 1)
+    seq = state.get("pick_sequence")
+    if isinstance(seq, list) and seq:
+        for idx in range(max(0, overall - 1), len(seq)):
+            entry = seq[idx]
+            if isinstance(entry, dict) and str(entry.get("team_id") or "").strip().upper() == team:
+                return idx + 1, int(entry.get("round", 1) or 1)
+        return None
+    order = [str(t).strip().upper() for t in state.get("order") or []]
+    if not order:
+        return None
+    total = len(order) * max(1, int(rounds_total or 1))
+    for pick in range(overall, total + 1):
+        if order[(pick - 1) % len(order)] == team:
+            return pick, (pick - 1) // len(order) + 1
+    return None
+
+
+def _drafted_by(
+    state: Dict[str, Any], team_id: str, by_id: Dict[str, Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """The prospects the club has drafted so far, whoever made the pick."""
+
+    team = str(team_id or "").strip().upper()
+    out = []
+    for entry in state.get("selected") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("team_id") or "").strip().upper() != team:
+            continue
+        prospect = by_id.get(str(entry.get("player_id") or ""))
+        if prospect is not None:
+            out.append(prospect)
+    return out
+
+
+def _board_choice(
+    year: int, state: Dict[str, Any], team_id: str
+) -> Optional[draft_board.BoardChoice]:
+    """The pick the club's board makes right now (``None`` without a board)."""
+
+    if not draft_board.has_board(year, team_id):
+        return None
+    by_id = _prospect_lookup(year)
+    return draft_board.choose(
+        draft_board.load_board(year, team_id),
+        pool=list(by_id.values()),
+        taken=_selected_ids(state),
+        drafted=_drafted_by(state, team_id, by_id),
+        round_no=_current_round(state),
+    )
+
+
+def _autodraft_ready(year: int, state: Dict[str, Any], team_id: str) -> bool:
+    """True when the club's board says to pick the moment it is up."""
+
+    if not draft_board.has_board(year, team_id):
+        return False
+    mode = draft_board.load_board(year, team_id).get("autodraft")
+    if mode not in ("board", "all"):
+        return False
+    choice = _board_choice(year, state, team_id)
+    return choice is not None and (mode == "all" or choice.source == "board")
+
+
+_WHY_TEXT = {
+    "clock": "Your pick clock ran out",
+    "autodraft": "Auto-draft is on",
+    "commissioner": "The commissioner had the CPU make your pick",
+    "owner": "You asked for an auto-pick",
+}
+
+
+def _pick_for_owner(
+    year: int,
+    state: Dict[str, Any],
+    team_id: str,
+    *,
+    why: str,
+    announce: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Make the pick for a club whose owner is not making it: from its draft
+    board when it has one, otherwise the best player available. The owner
+    is told which player, and why. ``None`` when nobody is left.
+
+    ``why`` is ``"clock"`` (his clock ran out), ``"autodraft"`` (his board
+    picks as soon as he is up), ``"commissioner"`` or ``"owner"`` (the
+    Auto-pick button)."""
+
+    choice = _board_choice(year, state, team_id)
+    if choice is not None:
+        player_id, source, reason = choice.player_id, "board", choice.reason
+    else:
+        best = _best_available(year, state)
+        if not best:
+            return None
+        player_id = str(best.get("player_id", ""))
+        source = "clock" if why == "clock" else None
+        reason = "You have no draft board, so the CPU took the best player available."
+    result = _do_pick(year, state, player_id=player_id, announce=announce, source=source)
+    _tell_owner_of_pick(year, team_id, result, reason=reason, why=why, board=choice is not None)
+    return result
+
+
+def _tell_owner_of_pick(
+    year: int,
+    team_id: str,
+    result: Dict[str, Any],
+    *,
+    reason: str,
+    why: str,
+    board: bool,
+) -> None:
+    """Keep the pick on the club's board and tell its owner. Never raises."""
+
+    log = logging.getLogger("nexgen.draft")
+    pid = str(result.get("player_id") or "")
+    who = draft_board.describe_pick(_prospect_lookup(year).get(pid), pid)
+    if board:
+        try:
+            draft_board.record_pick(
+                year,
+                team_id,
+                {
+                    "overall": result.get("overall"),
+                    "round": result.get("round"),
+                    "player_id": pid,
+                    "name": who,
+                    "why": why,
+                    "reason": reason,
+                },
+            )
+        except Exception:
+            log.exception("draft board: could not record the pick for %s", team_id)
+    if why == "owner":
+        return  # he pressed the button himself
+    try:
+        from services.notification_engine import NotificationEvent, append_history
+        from services.notification_settings import load_notification_settings
+        from services.team_ownership import human_owned_team_ids_strict
+
+        owners = human_owned_team_ids_strict() or set()
+        if str(team_id).strip().upper() not in owners:
+            return
+        rule = load_notification_settings(team_id).rule(DRAFT_PICK_RULE_ID)
+        if not rule.enabled:
+            return
+        picker = "your draft board" if board else "the CPU"
+        message = (
+            f"Round {result.get('round')}, pick {result.get('overall')}: "
+            f"{_WHY_TEXT.get(why, 'A pick was made for you')}, so {picker} took {who}. "
+            f"{reason}"
+        )
+        append_history(team_id, [NotificationEvent(
+            rule_id=DRAFT_PICK_RULE_ID,
+            severity="info",
+            title="Draft pick made for you",
+            message=message,
+            payload={"team_id": team_id, "player_id": pid},
+            notify=bool(rule.notify),
+        )])
+    except Exception:
+        log.exception("draft board: could not notify %s", team_id)
+
+
+def _require_own_board(identity: Dict[str, Any], team_id: str) -> str:
+    """A board is its club's owner's alone: the commissioner may act for any
+    club, but may not read another club's draft plans."""
+
+    team = str(team_id or "").strip().upper()
+    if not team or str(identity.get("t") or "").strip().upper() != team:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Draft boards are private: only the club's owner can open its board.",
+        )
+    return team
+
+
+def _board_payload(year: int, team_id: str) -> Dict[str, Any]:
+    """The board as the page shows it: each player with his ratings and
+    whether he is gone, what the board would take at the club's next pick,
+    and the picks it has made."""
+
+    from services.draft_settings import load_draft_settings
+
+    board = draft_board.load_board(year, team_id)
+    by_id = _prospect_lookup(year)
+    state = draft_state.load_state(year) or {}
+    rounds = int(load_draft_settings().rounds)
+    taken: Dict[str, Dict[str, Any]] = {}
+    for entry in state.get("selected") or []:
+        if isinstance(entry, dict) and entry.get("player_id"):
+            taken[str(entry["player_id"])] = {
+                "team_id": entry.get("team_id"),
+                "overall": entry.get("overall"),
+                "round": entry.get("round"),
+            }
+    league_scale = page_scale()
+    entries = []
+    for entry in board["entries"]:
+        prospect = by_id.get(entry["player_id"])
+        row = dict(entry)
+        row["prospect"] = (
+            _prospect_row(prospect, league_scale, available=entry["player_id"] not in taken)
+            if prospect is not None
+            else None
+        )
+        row["taken"] = taken.get(entry["player_id"])
+        entries.append(row)
+
+    complete = bool(state) and _draft_complete(state, rounds)
+    drafted = _drafted_by(state, team_id, by_id)
+    next_pick = None
+    preview = None
+    if not complete and by_id:
+        found = _next_pick_of(state, team_id, rounds) if state else None
+        if found is not None:
+            next_pick = {"overall": found[0], "round": found[1]}
+        # Before the draft opens the preview is for the club's first pick.
+        if found is not None or not state:
+            round_no = found[1] if found else 1
+            choice = draft_board.choose(
+                board,
+                pool=list(by_id.values()),
+                taken=set(taken),
+                drafted=drafted,
+                round_no=round_no,
+            )
+            if choice is not None:
+                preview = {
+                    "player_id": choice.player_id,
+                    "name": draft_board.describe_pick(by_id.get(choice.player_id), choice.player_id),
+                    "source": choice.source,
+                    "reason": choice.reason,
+                    "round": round_no,
+                }
+    counts: Dict[str, int] = {}
+    for prospect in drafted:
+        for key in draft_board.position_groups_of(prospect):
+            counts[key] = counts.get(key, 0) + 1
+    on_clock = _team_on_clock(state) if state and not complete else None
+    return {
+        "year": year,
+        "team_id": team_id,
+        "board": {k: v for k, v in board.items() if k not in ("made", "entries")},
+        "entries": entries,
+        "made": board.get("made") or [],
+        "preview": preview,
+        "next_pick": next_pick,
+        "drafted_counts": counts,
+        "draft": {
+            "exists": bool(state),
+            "complete": complete,
+            "rounds": rounds,
+            "on_clock": bool(on_clock) and str(on_clock).strip().upper() == team_id,
+        },
+        "options": {
+            "positions": list(draft_board.POSITION_GROUPS),
+            "groups": list(draft_board.GROUP_LABELS),
+            "fallbacks": [
+                {"id": key, "label": label} for key, label in draft_board.FALLBACKS.items()
+            ],
+            "autodraft": list(draft_board.AUTODRAFT_MODES),
+        },
+    }
+
+
+@router.get("/board/{team_id}")
+def draft_board_view(
+    team_id: str,
+    year: Optional[int] = Query(default=None),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """The club's draft board, with what it would pick right now."""
+
+    require_team_owner(identity, team_id)
+    team = _require_own_board(identity, team_id)
+    return _board_payload(_resolve_year(year), team)
+
+
+@router.put("/board/{team_id}")
+def draft_board_save(
+    team_id: str,
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_bearer),
+) -> Dict[str, Any]:
+    """Save the club's draft board (the whole board, as the page holds it)."""
+
+    require_team_owner(identity, team_id)
+    team = _require_own_board(identity, team_id)
+    year = int(payload.get("year") or _resolve_year(None))
+    state = draft_state.load_state(year) or {}
+    if state and _draft_complete(state, _load_settings_rounds()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"The {year} draft is over.",
+        )
+    by_id = _prospect_lookup(year)
+    if not by_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"There is no {year} draft class yet.",
+        )
+    raw = payload.get("board")
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="board is required.",
+        )
+    try:
+        draft_board.save_board(year, team, raw, pool_ids=set(by_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _board_payload(year, team)
