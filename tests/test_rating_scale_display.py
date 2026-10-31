@@ -63,9 +63,10 @@ PINNED_SCALE_1 = {
 # 8.4.0: the League Hub tutorial's "Postseason stats" step; for 8.5.0: the
 # Finance tutorial's "Extending your players" step; for 8.6.0: the Free
 # Agency tutorial's asking-price wording; for 8.7.0: the Draft Board guide
-# and the pick-clock step's draft-board wording).
+# and the pick-clock step's draft-board wording; for 8.7.1: the Roster
+# tutorial's "Players who may retire" step).
 PINNED_SCALE_1_TUTORIALS = (
-    "c2204a098344ca7c5148b118a26621d217ac15c8712dfb040727f11c0ac915ff"
+    "6c15cdae495fe83fa303a5c16017d8bbf3e4191bf448b4c5bc259c29044188e0"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

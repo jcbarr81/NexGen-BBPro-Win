@@ -22,6 +22,7 @@ import {
   ArrowLeftRight,
   ChevronRight,
   Handshake,
+  Hourglass,
   Loader2,
   Palette,
   Pencil,
@@ -337,6 +338,17 @@ function HeroCard({ profile }: { profile: PlayerProfile }) {
               {profile.weight_text}
               {profile.role_text ? ` · ${profile.role_text}` : ""}
             </div>
+            {profile.retirement_outlook && (
+              <div className="mt-2">
+                <Badge
+                  tone={profile.retirement_outlook.band === "likely" ? "warning" : "neutral"}
+                  title="Older players weigh retiring each offseason. This is a likelihood, not a decision."
+                >
+                  <Hourglass className="h-3 w-3" />
+                  {profile.retirement_outlook.label}: {profile.retirement_outlook.message}
+                </Badge>
+              </div>
+            )}
           </div>
         </div>
 

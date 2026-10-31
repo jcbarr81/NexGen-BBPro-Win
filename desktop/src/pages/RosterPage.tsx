@@ -20,6 +20,7 @@ import {
   ChevronDown,
   GripVertical,
   HeartPulse,
+  Hourglass,
   Loader2,
   Shuffle,
   Users,
@@ -1270,6 +1271,20 @@ function RosterRow({
           {player.dl_tier && (
             <Badge tone="warning" className="text-[10px]">
               {player.dl_tier.toUpperCase()}
+            </Badge>
+          )}
+          {player.retirement_outlook && (
+            <Badge
+              tone="neutral"
+              className="text-[10px]"
+              title={
+                player.retirement_outlook === "likely"
+                  ? "Likely to retire after this season"
+                  : "May retire after this season"
+              }
+            >
+              <Hourglass className="h-3 w-3" />
+              {player.retirement_outlook === "likely" ? "Retiring?" : "May retire"}
             </Badge>
           )}
         </div>

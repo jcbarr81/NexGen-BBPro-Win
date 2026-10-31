@@ -178,6 +178,10 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Every move runs the shared validator. The limits: 26 active players with at most 13 pitchers (28 and 14 from September 1 to the end of the regular season), 15 in AAA and 10 in Low-A. Moving a player into a full level, or adding a 14th active pitcher, is allowed with a warning, so you can promote first and send someone down next; the Roster page then flags it and the season check won't let you sim until the roster is legal again. That check also wants at least 11 position players on the active roster and every defensive position covered. A move that breaks a hard rule, such as sending a player aged 27 or older to Low-A, is refused with the specific error.</p>",
             ),
             TutorialStep(
+                "Players who may retire",
+                "<p>Players retire at the season rollover, and yours can too. Hardly anyone retires before 31; the chance climbs with age, and better players last longer. A player with a real chance of retiring after this season shows a <b>May retire</b> badge on the Roster page (about a 30% chance or more), or <b>Retiring?</b> (50% or more), and the same note on his player page. It is a likelihood, not the decision: a player marked likely can play on, and one with no badge can still retire. A walk-year player is judged as if he re-signs; if he reaches free agency his chance is higher.</p>",
+            ),
+            TutorialStep(
                 "Depth chart",
                 "<p>Open <b>My Team → Depth Chart</b> to set up to three players per position (C/SS/CF/3B/2B/1B/LF/RF/DH). The top entry is the primary starter; the rest feed injury replacement + lineup autofill. Errors and warnings appear inline as you edit.</p>",
             ),

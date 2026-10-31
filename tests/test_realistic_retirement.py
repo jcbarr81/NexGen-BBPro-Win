@@ -267,3 +267,71 @@ def test_the_rollover_judges_cpu_non_tenders_as_new_free_agents():
     assert "expiring={**_non_tenders, **_expiring_clubs}" in src
     flow = (Path(__file__).resolve().parents[1] / "services" / "offseason_finance_flow.py").read_text(encoding="utf-8")
     assert '"cpu_non_tender_clubs": cpu_non_tender_clubs' in flow
+
+
+# ---------------------------------------------------------------------------
+# Warning owners before the rollover (8.7.1)
+# ---------------------------------------------------------------------------
+
+
+def test_the_outlook_flags_old_players_and_leaves_the_young_alone(league):
+    data, _ = league
+    outlook = pr.retirement_outlook(data_dir=data, season_year=2027)
+    assert all(outlook[f"O{i}"]["band"] == "likely" for i in range(20))
+    assert all(outlook[f"FO{i}"]["band"] == "likely" for i in range(20))
+    assert not any(pid.startswith(("Y", "FY")) for pid in outlook)
+    # Not judged by the rollover, so not flagged either.
+    assert "OLDC" not in outlook and "GONE" not in outlook
+
+
+def test_the_outlook_is_the_chance_never_the_roll(league):
+    """Knowing who retires would let an owner trade him away first."""
+    data, _ = league
+    bands = lambda year: {
+        pid: v["band"] for pid, v in pr.retirement_outlook(data_dir=data, season_year=year).items()
+    }
+    pr._outlook_cache.clear()
+    first = bands(2027)
+    pr._outlook_cache.clear()
+    assert bands(2031) == first
+    assert all(0 < v["chance"] < 1 for v in pr.retirement_outlook(data_dir=data).values())
+
+
+def test_a_player_page_gets_a_band_and_words_not_a_number(league):
+    data, _ = league
+    shown = pr.outlook_for("O1", data_dir=data)
+    assert shown == {
+        "band": "likely",
+        "label": "Likely to retire",
+        "message": "Likely to retire after this season.",
+    }
+    assert pr.outlook_for("Y1", data_dir=data) is None
+
+
+def test_the_outlook_is_worked_out_again_when_the_league_changes(league):
+    import os
+
+    data, _ = league
+    assert "O1" in pr.retirement_outlook(data_dir=data, season_year=2027)
+    pr.save_retirees({"GONE": {"retired_year": 2020}, "O1": {"retired_year": 2026}}, data_dir=data)
+    stamp = (data / pr._RETIREES_FILENAME).stat().st_mtime_ns + 5_000_000_000
+    os.utime(data / pr._RETIREES_FILENAME, ns=(stamp, stamp))
+    assert "O1" not in pr.retirement_outlook(data_dir=data, season_year=2027)
+
+
+def test_the_roster_carries_the_band(monkeypatch):
+    import api.routers.roster as R
+
+    monkeypatch.setattr(R, "load_roster", lambda team: SimpleNamespace(
+        act=["O1", "Y1"], aaa=[], low=[], dl=[], ir=[], dl_tiers={},
+    ))
+    monkeypatch.setattr(R, "load_players_from_csv", lambda path: [])
+    monkeypatch.setattr(R, "page_scale", lambda: None)
+    monkeypatch.setattr(R, "_staff_roles", lambda team: {})
+    monkeypatch.setattr(
+        pr, "retirement_outlook", lambda **k: {"O1": {"chance": 0.6, "band": "likely"}}
+    )
+    rows = {r["player_id"]: r for r in R.team_roster("BBB")["levels"]["ACT"]}
+    assert rows["O1"]["retirement_outlook"] == "likely"
+    assert rows["Y1"]["retirement_outlook"] is None
+    assert "chance" not in rows["O1"]

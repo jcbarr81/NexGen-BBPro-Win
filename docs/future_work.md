@@ -213,10 +213,10 @@ player's percentile at his level in his league, deterministic per player and
 season, unsigned free agents included (`services/player_retirement`). The
 original finding is kept below.
 
-Follow-up (open): **warn owners before a player retires** -- a "considering
-retirement" note on the player page during his last season (the chance is
-known in advance from `retirement_chance`). Proposed with 8.6.5 and left
-for later.
+Follow-up SHIPPED 8.7.1: **warn owners before a player retires** -- a
+"May retire" / "Retiring?" badge on the Roster page and a note on the player
+page (`retirement_outlook` / `outlook_for` in `services/player_retirement`),
+showing the band, never the roll.
 
 Found measuring #52 (2026-10-27). The bars in
 `services/player_retirement` are in engine points, where big leaguers

@@ -254,6 +254,13 @@ as well.
   player whose contract has only just run out is judged by his age alone.
 - The outcome for each player is fixed for that season, so running the same
   rollover again gives the same retirements.
+- **You get a warning (8.7.1).** A player with a real chance of retiring at the
+  coming rollover shows a **May retire** badge on the Roster page (about a 30%
+  chance or more) or **Retiring?** (50% or more), and the same note on his
+  player page. It is a likelihood, never the decision itself: a player marked
+  "likely" can play on, and one with no badge can still retire. A walk-year
+  player is judged as if he re-signs; if he reaches free agency his chance is
+  higher.
 
 ### Lineup
 

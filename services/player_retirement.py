@@ -426,24 +426,18 @@ def _load_team_rosters(
     return out
 
 
-def run_yearly_retirements(
+def _league_candidates(
+    resolved: Path,
     *,
-    season_year: Optional[int] = None,
-    data_dir: Optional[Path] = None,
+    players: Iterable[object],
+    team_rosters: Mapping[str, Mapping[str, str]],
+    registry: Mapping[str, Any],
+    season_year: Optional[int],
     new_free_agents: Iterable[str] = (),
-) -> Dict[str, Any]:
-    """Apply retirement rules to every rostered player and every unsigned
-    free agent. Returns a summary.
-
-    ``new_free_agents`` are the players whose contracts ran out at this
-    rollover (the contract step's expired ids): they are judged as free
-    agents by age, not as players nobody signed all season."""
-
-    resolved = data_dir or get_data_dir()
-    rosters_dir = resolved / "rosters"
-    team_rosters = _load_team_rosters(rosters_dir)
-    if not team_rosters:
-        return {"retirees": [], "count": 0}
+) -> tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """Every player the rollover judges, as :func:`decide_retirements`
+    candidates, and ``{player_id: club}`` for the rostered ones. Shared by
+    the rollover and the outlook owners see (:func:`retirement_outlook`)."""
 
     rostered_ids: set[str] = set()
     team_for: Dict[str, str] = {}
@@ -454,11 +448,6 @@ def run_yearly_retirements(
             team_for.setdefault(pid, team_id)
             level_for.setdefault(pid, level)
 
-    try:
-        players = list(load_players_from_csv(resolved / "players.csv"))
-    except Exception:
-        return {"retirees": [], "count": 0, "error": "failed to load players.csv"}
-
     # A free agent is a player no club owns (no roster file, no contract)
     # who has not retired already; a contract on no roster file keeps the
     # player his club's, as the free-agent list counts him.
@@ -468,9 +457,7 @@ def run_yearly_retirements(
     # A qualifying offer still waiting on the owner's tender keeps the
     # player his club's: a tender re-signs him.
     owned.update({pid: (team, "QO") for pid, team in _pending_qualifying_offers(resolved, season_year).items()})
-    registry = load_retirees(resolved)
     years_left = _contract_years_left(resolved)
-    year = int(season_year or datetime.utcnow().year)
     new_free = {str(pid).strip() for pid in (new_free_agents or ())}
 
     candidates: List[Dict[str, Any]] = []
@@ -493,6 +480,168 @@ def run_yearly_retirements(
                 "multi_year_contract": years_left.get(pid, 0) > 1,
             }
         )
+    return candidates, team_for
+
+
+# Warning owners (backlog #52a follow-up, 8.7.1): a player whose chance of
+# retiring at the coming rollover is at least this is "considering
+# retirement", and at least LIKELY "likely to retire". Only the chance is
+# shown, never the roll (_draw): knowing exactly who retires would let an
+# owner trade the player away first.
+CONSIDERING_CHANCE = 0.30
+LIKELY_CHANCE = 0.50
+_outlook_cache: Dict[str, tuple[tuple, Dict[str, Dict[str, Any]]]] = {}
+
+
+def _outlook_key(resolved: Path) -> tuple:
+    """Changes whenever a file the outlook reads is rewritten, and each day
+    (ages move with the date)."""
+
+    def _mtime(path: Path) -> int:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    rosters = resolved / "rosters"
+    newest_roster = 0
+    if rosters.exists():
+        newest_roster = max((_mtime(p) for p in rosters.glob("*.csv")), default=0)
+    from datetime import date
+
+    return (
+        _mtime(resolved / "players.csv"),
+        newest_roster,
+        _mtime(resolved / _RETIREES_FILENAME),
+        _mtime(resolved / "contracts.json"),
+        date.today().isoformat(),
+    )
+
+
+def retirement_outlook(
+    *,
+    data_dir: Optional[Path] = None,
+    season_year: Optional[int] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """``{player_id: {"chance", "band"}}`` for every player whose chance of
+    retiring at the coming rollover is at least :data:`CONSIDERING_CHANCE`
+    (``band`` ``"considering"`` or ``"likely"``).
+
+    Judged as the rollover would judge him today: at his level now, ranked
+    against the league, his age today. A walk-year player is judged on his
+    level (as if re-signed); if he reaches free agency his chance is higher.
+    Cached per league until a file it reads changes (a roster page asks on
+    every load, and a full league takes a second or two to work out).
+    """
+
+    resolved = data_dir or get_data_dir()
+    cache_id = str(resolved)
+    key = (_outlook_key(resolved), season_year)
+    hit = _outlook_cache.get(cache_id)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+
+    out: Dict[str, Dict[str, Any]] = {}
+    team_rosters = _load_team_rosters(resolved / "rosters")
+    try:
+        players = list(load_players_from_csv(resolved / "players.csv"))
+    except Exception:
+        players = []
+    if team_rosters and players:
+        if season_year is None:
+            try:
+                from services.trade_settings import current_league_year
+
+                season_year = int(current_league_year()) + 1
+            except Exception:
+                season_year = None
+        candidates, _teams = _league_candidates(
+            resolved,
+            players=players,
+            team_rosters=team_rosters,
+            registry=load_retirees(resolved),
+            season_year=season_year,
+        )
+        scores = {
+            str(getattr(c["player"], "player_id", "")): (
+                str(c.get("level") or "ACT"),
+                player_overall_score(c["player"]),
+            )
+            for c in candidates
+        }
+        ranks = level_percentiles(scores)
+        for item in candidates:
+            pid = str(getattr(item["player"], "player_id", ""))
+            chance = retirement_chance(
+                item.get("age"),
+                item.get("level"),
+                ranks.get(pid, 0.5),
+                multi_year_contract=bool(item.get("multi_year_contract")),
+            )
+            if chance >= CONSIDERING_CHANCE:
+                out[pid] = {
+                    "chance": round(chance, 3),
+                    "band": "likely" if chance >= LIKELY_CHANCE else "considering",
+                }
+    _outlook_cache[cache_id] = (key, out)
+    return out
+
+
+def outlook_for(player_id: str, *, data_dir: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """What a page shows for one player: ``{"band", "label", "message"}``,
+    or ``None`` when he is not thinking about it. The chance itself stays
+    on the server."""
+
+    entry = retirement_outlook(data_dir=data_dir).get(str(player_id))
+    if not entry:
+        return None
+    if entry["band"] == "likely":
+        return {
+            "band": "likely",
+            "label": "Likely to retire",
+            "message": "Likely to retire after this season.",
+        }
+    return {
+        "band": "considering",
+        "label": "Considering retirement",
+        "message": "May retire after this season.",
+    }
+
+
+def run_yearly_retirements(
+    *,
+    season_year: Optional[int] = None,
+    data_dir: Optional[Path] = None,
+    new_free_agents: Iterable[str] = (),
+) -> Dict[str, Any]:
+    """Apply retirement rules to every rostered player and every unsigned
+    free agent. Returns a summary.
+
+    ``new_free_agents`` are the players whose contracts ran out at this
+    rollover (the contract step's expired ids): they are judged as free
+    agents by age, not as players nobody signed all season."""
+
+    resolved = data_dir or get_data_dir()
+    rosters_dir = resolved / "rosters"
+    team_rosters = _load_team_rosters(rosters_dir)
+    if not team_rosters:
+        return {"retirees": [], "count": 0}
+
+    try:
+        players = list(load_players_from_csv(resolved / "players.csv"))
+    except Exception:
+        return {"retirees": [], "count": 0, "error": "failed to load players.csv"}
+
+    registry = load_retirees(resolved)
+    year = int(season_year or datetime.utcnow().year)
+    candidates, team_for = _league_candidates(
+        resolved,
+        players=players,
+        team_rosters=team_rosters,
+        registry=registry,
+        season_year=season_year,
+        new_free_agents=new_free_agents,
+    )
 
     retirees: List[Dict[str, Any]] = []
     for decided in decide_retirements(candidates, season_year=year):
@@ -606,13 +755,17 @@ def _scrub_rosters(rosters_dir: Path, retired_ids: Iterable[str]) -> None:
 
 
 __all__ = [
+    "CONSIDERING_CHANCE",
     "FREE_AGENT",
+    "LIKELY_CHANCE",
     "NEW_FREE_AGENT",
     "decide_retirements",
     "is_retired",
     "level_percentiles",
     "load_retirees",
+    "outlook_for",
     "retirement_chance",
+    "retirement_outlook",
     "run_yearly_retirements",
     "save_retirees",
     "should_retire",

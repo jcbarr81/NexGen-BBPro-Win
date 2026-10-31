@@ -482,6 +482,15 @@ def get_player_profile(
     except Exception:
         pass
 
+    # Whether he is thinking about retiring after this season (8.7.1): a
+    # band, never the outcome (services.player_retirement.outlook_for).
+    try:
+        from services.player_retirement import outlook_for
+
+        payload["retirement_outlook"] = outlook_for(player_id)
+    except Exception:
+        payload["retirement_outlook"] = None
+
     role = str(identity.get("r", "")).lower()
     if role != "admin":
         details = payload.get("overall_details")

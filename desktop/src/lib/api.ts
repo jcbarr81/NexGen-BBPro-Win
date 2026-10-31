@@ -632,6 +632,8 @@ export interface RosterPlayer {
   overall_display?: number | null;
   /** Pre-formatted star text (e.g. ``"4"`` or ``"4.5"``). */
   overall_stars_text?: string | null;
+  /** Thinking about retiring after this season (8.7.1): a band only. */
+  retirement_outlook?: "considering" | "likely" | null;
 }
 
 export interface TeamRoster {
@@ -1716,6 +1718,12 @@ export interface PlayerProfile {
     from_team: string;
     to_team: string;
   }>;
+  /** Thinking about retiring after this season (8.7.1). */
+  retirement_outlook?: {
+    band: "considering" | "likely";
+    label: string;
+    message: string;
+  } | null;
   /** Per-rating deltas from the most recent spring training camp. */
   spring_training_gains?: {
     year?: number | string | null;

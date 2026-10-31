@@ -265,6 +265,26 @@ def team_roster(team_id: str) -> Dict[str, Any]:
         else:
             act_hitters += 1
 
+    levels = {
+        "ACT": _hydrate(roster.act, "ACT"),
+        "AAA": _hydrate(roster.aaa, "AAA"),
+        "LOW": _hydrate(roster.low, "LOW"),
+        "DL": _hydrate(roster.dl, "DL"),
+        "IR": _hydrate(roster.ir, "IR"),
+    }
+    # Who is thinking about retiring after this season (8.7.1): the band
+    # only, never the outcome.
+    try:
+        from services.player_retirement import retirement_outlook
+
+        outlook = retirement_outlook()
+    except Exception:
+        outlook = {}
+    for rows in levels.values():
+        for row in rows:
+            entry = outlook.get(str(row.get("player_id") or ""))
+            row["retirement_outlook"] = entry["band"] if entry else None
+
     return {
         "team_id": team_id,
         "active_size": len(roster.act),
@@ -273,13 +293,7 @@ def team_roster(team_id: str) -> Dict[str, Any]:
         "act_pitchers": act_pitchers,
         "act_hitters": act_hitters,
         "org_limit": ORG_LIMIT,
-        "levels": {
-            "ACT": _hydrate(roster.act, "ACT"),
-            "AAA": _hydrate(roster.aaa, "AAA"),
-            "LOW": _hydrate(roster.low, "LOW"),
-            "DL": _hydrate(roster.dl, "DL"),
-            "IR": _hydrate(roster.ir, "IR"),
-        },
+        "levels": levels,
     }
 
 
