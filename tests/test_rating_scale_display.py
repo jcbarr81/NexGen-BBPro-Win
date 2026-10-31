@@ -67,9 +67,10 @@ PINNED_SCALE_1 = {
 # Agency tutorial's asking-price wording; for 8.7.0: the Draft Board guide
 # and the pick-clock step's draft-board wording; for 8.7.1: the Roster
 # tutorial's "Players who may retire" step; for 8.7.2: the Draft Board
-# guide's prospect-card sentence).
+# guide's prospect-card sentence; for 8.7.3: the Depth chart step's
+# ratings-card sentence).
 PINNED_SCALE_1_TUTORIALS = (
-    "5e26c3548debfac22c7583412701eece1f4dd7cf2aed7ce01df61e001baa4bbc"
+    "47ceb6567fbd70a36216d2c0c0e679959d6a7db961129c32b46aa27ba8939798"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

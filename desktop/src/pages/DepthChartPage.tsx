@@ -43,6 +43,11 @@ import { useTeams } from "@/lib/use-teams";
 import { useLiveValidation } from "@/lib/use-live-validation";
 import { AppShell } from "@/components/layout/AppShell";
 import {
+  PlayerRatingsDialog,
+  RatingLine,
+  rosterCardPlayer,
+} from "@/components/PlayerRatingsCard";
+import {
   Badge,
   Button,
   Card,
@@ -51,6 +56,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui";
+
+const LEVEL_TEXT: Record<string, string> = {
+  ACT: "On the active roster",
+  AAA: "In AAA",
+  LOW: "In Low-A",
+};
 
 export function DepthChartPage() {
   const user = useAuthStore();
@@ -168,6 +179,8 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
   }, [activePlayers]);
 
   // All hooks MUST run unconditionally before any early return below.
+  const [cardId, setCardId] = useState<string | null>(null);
+  const cardPlayer = cardId && byId[cardId] ? rosterCardPlayer(byId[cardId]!) : null;
   const liveValidation = useLiveValidation(
     () => api.validateDepthChart(teamId, draft),
     [draft, teamId],
@@ -410,6 +423,7 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
                   onReorder={reorderSlot}
                   onMove={moveSlot}
                   onRemove={removeSlot}
+                  onOpenCard={setCardId}
                 />
                 {slots.length < max_depth && (
                   <select
@@ -433,6 +447,12 @@ function DepthChartEditor({ teamId }: { teamId: string }) {
           );
         })}
       </div>
+
+      <PlayerRatingsDialog
+        player={cardPlayer}
+        pageLink={cardId ? LEVEL_TEXT[byId[cardId]?.level ?? ""] ?? "" : null}
+        onClose={() => setCardId(null)}
+      />
 
       {saveMut.isError && (
         <Card>
@@ -459,6 +479,7 @@ function SortableSlotList({
   onReorder,
   onMove,
   onRemove,
+  onOpenCard,
 }: {
   pos: string;
   slots: string[];
@@ -466,6 +487,7 @@ function SortableSlotList({
   onReorder: (pos: string, from: number, to: number) => void;
   onMove: (pos: string, idx: number, delta: number) => void;
   onRemove: (pos: string, idx: number) => void;
+  onOpenCard: (playerId: string) => void;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -502,6 +524,8 @@ function SortableSlotList({
                 id={ids[idx]!}
                 idx={idx}
                 label={label}
+                player={player}
+                onOpenCard={player ? () => onOpenCard(pid) : undefined}
                 isLast={idx === slots.length - 1}
                 onMoveUp={() => onMove(pos, idx, -1)}
                 onMoveDown={() => onMove(pos, idx, 1)}
@@ -519,6 +543,8 @@ function SortableSlot({
   id,
   idx,
   label,
+  player,
+  onOpenCard,
   isLast,
   onMoveUp,
   onMoveDown,
@@ -527,6 +553,8 @@ function SortableSlot({
   id: string;
   idx: number;
   label: string;
+  player?: RosterPlayer;
+  onOpenCard?: () => void;
   isLast: boolean;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -555,7 +583,21 @@ function SortableSlot({
         <GripVertical className="h-3.5 w-3.5" />
       </button>
       <span className="w-5 text-xs text-muted">{idx + 1}.</span>
-      <span className="flex-1 truncate">{label}</span>
+      <div className="min-w-0 flex-1">
+        {onOpenCard ? (
+          <button
+            type="button"
+            onClick={onOpenCard}
+            className="block max-w-full truncate text-left hover:text-amber hover:underline"
+            title="See all his ratings"
+          >
+            {label}
+          </button>
+        ) : (
+          <span className="block truncate">{label}</span>
+        )}
+        {player && <RatingLine player={rosterCardPlayer(player)} />}
+      </div>
       <Button
         variant="ghost"
         size="icon"

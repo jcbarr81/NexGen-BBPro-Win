@@ -50,7 +50,7 @@ import {
   type DraftBoardView,
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { ProspectCardDialog, ProspectRatingLine } from "@/components/ProspectCard";
+import { PlayerRatingsDialog, RatingLine } from "@/components/PlayerRatingsCard";
 import {
   Badge,
   Button,
@@ -717,9 +717,9 @@ function BoardTable({
           </table>
         </div>
       </SortableContext>
-      <ProspectCardDialog
-        prospect={cardRow?.prospect ?? null}
-        takenBy={cardRow?.taken?.team_id ?? null}
+      <PlayerRatingsDialog
+        player={cardRow?.prospect ?? null}
+        pageLink={cardRow?.taken ? `Drafted by ${cardRow.taken.team_id}` : null}
         onClose={() => setCardId(null)}
       />
     </DndContext>
@@ -858,7 +858,7 @@ function SortableBoardRow({
         <td className="px-2 py-2 text-right tabular-nums">{p?.age ?? "—"}</td>
         <td className="px-2 py-2 text-right font-semibold tabular-nums">{p?.overall ?? "—"}</td>
         <td className="min-w-[180px] px-3 py-2">
-          {p ? <ProspectRatingLine prospect={p} /> : <span className="text-subtle">—</span>}
+          {p ? <RatingLine player={p} /> : <span className="text-subtle">—</span>}
         </td>
         <td className="px-3 py-2">
           <select

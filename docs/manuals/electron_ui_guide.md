@@ -290,7 +290,8 @@ or a slot listed twice only warns.
 Ordered priority list per position (up to three each). The top entry starts;
 2 and 3 back-fill on injury/rest/promotion. **Auto-generate** seeds the best
 three per position. Drives Lineup autofill and the injury-replacement engine.
-Live validation + Ctrl+S.
+Each player shows his key ratings, and clicking his name opens a card with
+every rating and a link to his player page (8.7.3). Live validation + Ctrl+S.
 
 ### Training
 

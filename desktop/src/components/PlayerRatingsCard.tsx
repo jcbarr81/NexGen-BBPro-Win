@@ -1,13 +1,14 @@
 /**
- * A draft prospect's ratings (8.7.2): the compact line the draft board shows
- * on every row, and the card that opens when an owner clicks a prospect's
- * name. A prospect has no player page until he is drafted, so the card is
- * built from the draft pool's own row (``DraftProspect``).
+ * A player's ratings at a glance: the compact line the draft board (8.7.2)
+ * and the depth chart (8.7.3) show on every row, and the card that opens
+ * when an owner clicks a name. A draft prospect has no player page until he
+ * is drafted, so the card is built from the row the page already has (a
+ * ``DraftProspect`` or a ``RosterPlayer``), not from the profile endpoint.
  */
 
 import { Link } from "react-router-dom";
 
-import { type DraftProspect } from "@/lib/api";
+import { type RosterPlayer } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { ratingTone } from "@/lib/rating-tone";
 import {
@@ -17,6 +18,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui";
+
+/** What the card needs: a ``DraftProspect`` fits as it is, a
+ *  ``RosterPlayer`` through ``rosterCardPlayer``. */
+export interface CardPlayer {
+  player_id: string;
+  first_name: string;
+  last_name: string;
+  primary_position: string;
+  other_positions?: string;
+  is_pitcher: boolean;
+  bats: string;
+  throws?: string;
+  age?: number | null;
+  overall?: number | null;
+  ratings: Record<string, number | string | null>;
+}
+
+export function rosterCardPlayer(p: RosterPlayer): CardPlayer {
+  return { ...p, overall: p.overall_display ?? null };
+}
 
 type RatingCol = { key: string; label: string; name: string };
 
@@ -45,7 +66,7 @@ const PITCHES: RatingCol[] = [
   { key: "kn", label: "KN", name: "Knuckleball" },
 ];
 
-function ratingNumber(p: DraftProspect, key: string): number | null {
+function ratingNumber(p: CardPlayer, key: string): number | null {
   const raw = p.ratings[key];
   if (raw == null || raw === "") return null;
   const n = typeof raw === "number" ? raw : Number(raw);
@@ -53,21 +74,21 @@ function ratingNumber(p: DraftProspect, key: string): number | null {
 }
 
 /** The pitches he throws (a zero rating means he doesn't throw it). */
-function pitchesThrown(p: DraftProspect): RatingCol[] {
+function pitchesThrown(p: CardPlayer): RatingCol[] {
   return PITCHES.filter((c) => (ratingNumber(p, c.key) ?? 0) > 0);
 }
 
-/** The ratings worth a glance on the board: a hitter's six, or a
- *  pitcher's endurance, control, movement and the pitches he throws. */
-export function keyRatings(p: DraftProspect): RatingCol[] {
+/** The ratings worth a glance: a hitter's six, or a pitcher's endurance,
+ *  control, movement and the pitches he throws. */
+export function keyRatings(p: CardPlayer): RatingCol[] {
   return p.is_pitcher ? [...PITCHING.slice(0, 3), ...pitchesThrown(p)] : HITTING;
 }
 
-export function ProspectRatingLine({ prospect }: { prospect: DraftProspect }) {
+export function RatingLine({ player }: { player: CardPlayer }) {
   return (
     <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
-      {keyRatings(prospect).map((c) => {
-        const v = ratingNumber(prospect, c.key);
+      {keyRatings(player).map((c) => {
+        const v = ratingNumber(player, c.key);
         return (
           <span key={c.key} title={c.name} className="whitespace-nowrap">
             <span className="text-muted">{c.label}</span>{" "}
@@ -79,11 +100,11 @@ export function ProspectRatingLine({ prospect }: { prospect: DraftProspect }) {
   );
 }
 
-function RatingGrid({ prospect, cols }: { prospect: DraftProspect; cols: RatingCol[] }) {
+function RatingGrid({ player, cols }: { player: CardPlayer; cols: RatingCol[] }) {
   return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
       {cols.map((c) => {
-        const v = ratingNumber(prospect, c.key);
+        const v = ratingNumber(player, c.key);
         return (
           <div
             key={c.key}
@@ -110,18 +131,23 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export function ProspectCardDialog({
-  prospect,
-  takenBy,
+export function PlayerRatingsDialog({
+  player,
+  pageLink,
   onClose,
 }: {
-  prospect: DraftProspect | null;
-  /** Set once he has been drafted: he has a player page from then on. */
-  takenBy?: string | null;
+  player: CardPlayer | null;
+  /** Shown beside a link to his player page; null when he has none yet
+   *  (an undrafted prospect). */
+  pageLink?: string | null;
   onClose: () => void;
 }) {
-  const p = prospect;
+  const p = player;
   const pitches = p ? pitchesThrown(p) : [];
+  const otherPositions = (p?.other_positions ?? "")
+    .split(/[,;|\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => s && s !== p?.primary_position);
   return (
     <Dialog open={p != null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-xl">
@@ -134,6 +160,7 @@ export function ProspectCardDialog({
               <DialogDescription>
                 {[
                   p.primary_position || (p.is_pitcher ? "P" : null),
+                  otherPositions.length > 0 ? `also ${otherPositions.join(", ")}` : null,
                   p.age != null ? `Age ${p.age}` : null,
                   `Bats ${p.bats || "—"} / Throws ${p.throws || "—"}`,
                   `Overall ${p.overall ?? "—"}`,
@@ -146,27 +173,27 @@ export function ProspectCardDialog({
               {p.is_pitcher ? (
                 <>
                   <Section title="Pitching">
-                    <RatingGrid prospect={p} cols={PITCHING} />
+                    <RatingGrid player={p} cols={PITCHING} />
                   </Section>
                   <Section title="Pitches">
                     {pitches.length > 0 ? (
-                      <RatingGrid prospect={p} cols={pitches} />
+                      <RatingGrid player={p} cols={pitches} />
                     ) : (
                       <div className="text-xs text-muted">No pitches rated.</div>
                     )}
                   </Section>
                   <Section title="Hitting">
-                    <RatingGrid prospect={p} cols={HITTING.slice(0, 4)} />
+                    <RatingGrid player={p} cols={HITTING.slice(0, 4)} />
                   </Section>
                 </>
               ) : (
                 <Section title="Hitting and fielding">
-                  <RatingGrid prospect={p} cols={HITTING} />
+                  <RatingGrid player={p} cols={HITTING} />
                 </Section>
               )}
-              {takenBy && (
+              {pageLink != null && (
                 <div className="flex items-center justify-between border-t border-border/60 pt-3 text-sm">
-                  <span className="text-muted">Drafted by {takenBy}</span>
+                  <span className="text-muted">{pageLink}</span>
                   <Link
                     to={`/player/${encodeURIComponent(p.player_id)}`}
                     className="font-semibold text-amber-text hover:underline"

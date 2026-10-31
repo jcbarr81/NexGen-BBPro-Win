@@ -183,7 +183,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Depth chart",
-                "<p>Open <b>My Team → Depth Chart</b> to set up to three players per position (C/SS/CF/3B/2B/1B/LF/RF/DH). The top entry is the primary starter; the rest feed injury replacement + lineup autofill. Errors and warnings appear inline as you edit.</p>",
+                "<p>Open <b>My Team → Depth Chart</b> to set up to three players per position (C/SS/CF/3B/2B/1B/LF/RF/DH). The top entry is the primary starter; the rest feed injury replacement + lineup autofill. Each player shows his key ratings; click his name for a card with every rating. Errors and warnings appear inline as you edit.</p>",
             ),
             TutorialStep(
                 "When a player gets hurt",

@@ -48,7 +48,7 @@ import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { DraftTimingCard } from "@/components/DraftTimingCard";
 import { DraftBoardTab, useDraftBoardToggle } from "@/components/DraftBoardTab";
-import { ProspectCardDialog } from "@/components/ProspectCard";
+import { PlayerRatingsDialog } from "@/components/PlayerRatingsCard";
 import { StatCard } from "@/components/StatCard";
 import { StarRating } from "@/components/StarRating";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -1095,8 +1095,8 @@ function DraftControlsPanel({
                 })}
               </tbody>
             </table></div>
-            <ProspectCardDialog
-              prospect={cardProspect}
+            <PlayerRatingsDialog
+              player={cardProspect}
               onClose={() => setCardProspect(null)}
             />
           </div>
