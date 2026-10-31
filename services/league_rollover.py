@@ -324,14 +324,27 @@ class LeagueRolloverService:
         # the "washed" / "declining" thresholds. Retirees are removed from
         # rosters, released from contracts, and surfaced in the news feed.
         retire_summary: Dict[str, Any] = {}
+        # 8.6.5: a contract that ran out at this rollover, or a CPU club's
+        # arbitration non-tender, makes a new free agent, judged by age
+        # rather than as one nobody signed all season.
+        _non_tenders: Dict[str, str] = {}
+        try:
+            _arb = (finance_rollover or {}).get("arbitration") or {}
+            _non_tenders = {
+                str(pid): str(team).strip().upper()
+                for pid, team in (_arb.get("cpu_non_tender_clubs") or {}).items()
+                if team
+            }
+        except Exception:
+            _non_tenders = {}
         try:
             from services.player_retirement import run_yearly_retirements
 
-            # 8.6.5: a contract that ran out at this rollover makes a new
-            # free agent, judged by age rather than as one nobody signed.
             retire_summary = run_yearly_retirements(
                 season_year=next_year,
-                new_free_agents=(contract_rollover or {}).get("expired_player_ids") or [],
+                new_free_agents=list(
+                    (contract_rollover or {}).get("expired_player_ids") or []
+                ) + list(_non_tenders),
             )
             if retire_summary:
                 artifacts["retirements"] = json.dumps(
@@ -350,7 +363,8 @@ class LeagueRolloverService:
             record_departures(
                 next_year,
                 data_dir=_DATA_DIR,
-                expiring=_expiring_clubs,
+                # A non-tender who retires is listed under his old club.
+                expiring={**_non_tenders, **_expiring_clubs},
                 expired_ids=(contract_rollover or {}).get("expired_player_ids") or [],
                 retirees=(retire_summary or {}).get("retirees") or [],
             )

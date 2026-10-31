@@ -351,6 +351,25 @@ def decide_retirements(
     return out
 
 
+def _pending_qualifying_offers(data_dir: Path, season_year: Optional[int]) -> Dict[str, str]:
+    """``{player_id: club}`` for the qualifying offers of ``season_year``
+    still waiting on an owner's tender (empty when there are none)."""
+
+    if not season_year:
+        return {}
+    try:
+        from services.qualifying_offers import load_qo_state
+
+        players = load_qo_state(int(season_year), data_dir=data_dir).get("players") or {}
+    except Exception:
+        return {}
+    return {
+        str(pid): str(rec.get("team_id") or "")
+        for pid, rec in players.items()
+        if isinstance(rec, Mapping) and rec.get("decision") == "pending"
+    }
+
+
 def _contract_years_left(data_dir: Path) -> Dict[str, int]:
     """``{player_id: years_left}`` from the league's contracts (empty when
     there are none or they can't be read)."""
@@ -446,6 +465,9 @@ def run_yearly_retirements(
     from utils.roster_ownership import club_owned_players
 
     owned = club_owned_players(resolved)
+    # A qualifying offer still waiting on the owner's tender keeps the
+    # player his club's: a tender re-signs him.
+    owned.update({pid: (team, "QO") for pid, team in _pending_qualifying_offers(resolved, season_year).items()})
     registry = load_retirees(resolved)
     years_left = _contract_years_left(resolved)
     year = int(season_year or datetime.utcnow().year)

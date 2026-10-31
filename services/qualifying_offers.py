@@ -327,6 +327,14 @@ def resolve_qualifying_offer(
         return {"applied": False, "reason": "not_found"}
     if rec.get("decision") != "pending":
         return {"applied": False, "reason": "already_resolved", "decision": rec.get("decision")}
+    # 8.6.5: free agents can retire at the rollover; a retiree is not
+    # re-signed.
+    from services.player_retirement import is_retired
+
+    if is_retired(str(player_id), data_dir=resolved):
+        rec["decision"] = "retired"
+        _save_qo_state(y, state, data_dir=resolved)
+        return {"applied": True, "decision": "retired"}
 
     if not tender:
         rec["decision"] = "not_tendered"

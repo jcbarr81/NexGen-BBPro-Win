@@ -685,6 +685,10 @@ def _apply_arbitration_updates(
     awards_by_team: Dict[str, int] = {}
     details: list[Dict[str, object]] = []
     cpu_non_tender_ids: list[str] = []
+    # 8.6.5: {player_id: club} of the non-tenders, so the rollover's
+    # retirement step judges them as new free agents (not as players nobody
+    # signed all season) and lists a retiree under his old club.
+    cpu_non_tender_clubs: Dict[str, str] = {}
     # Strict ownership: a users.txt that can't be read must not turn owners'
     # clubs into CPU clubs (CPU non-tenders). Unknown -> every club gets the
     # owner's default for this pass (a standard raise, no CPU decisions).
@@ -797,6 +801,7 @@ def _apply_arbitration_updates(
                             season_year=next_year,
                         )
                     cpu_non_tender_ids.append(str(player_id))
+                    cpu_non_tender_clubs[str(player_id)] = team_id
                     details.append(
                         {
                             "player_id": str(player_id),
@@ -895,6 +900,7 @@ def _apply_arbitration_updates(
         "details": details,
         "cpu_non_tenders": int(non_tender_summary.get("released_contracts", 0)),
         "cpu_releases": int(non_tender_summary.get("released_from_rosters", 0)),
+        "cpu_non_tender_clubs": cpu_non_tender_clubs,
         "ownership_unknown": ownership_unknown,
     }
 

@@ -224,3 +224,46 @@ def test_an_open_offer_on_a_retired_free_agent_closes(tmp_path):
     assert summary["retired"] == ["P9"]
     state = neg.load_negotiations(data_dir=tmp_path)["negotiations"]["P9"]
     assert state["resolution"]["outcome"] == "retired"
+
+
+def test_a_pending_qualifying_offer_keeps_the_player_his_clubs(league):
+    from services.qualifying_offers import _save_qo_state
+
+    data, _ = league
+    _save_qo_state(2027, {"year": 2027, "players": {
+        f"FO{i}": {"team_id": "BBB", "decision": "pending", "salary": 9_000_000}
+        for i in range(20)
+    }}, data_dir=data)
+    summary = pr.run_yearly_retirements(season_year=2027, data_dir=data)
+    assert not any(r["player_id"].startswith("FO") for r in summary["retirees"])
+
+
+def test_a_retired_player_is_not_re_signed_on_a_qualifying_offer(tmp_path):
+    from services.qualifying_offers import _save_qo_state, load_qo_state, resolve_qualifying_offer
+
+    pr.save_retirees({"P9": {"retired_year": 2027}}, data_dir=tmp_path)
+    _save_qo_state(2027, {"year": 2027, "players": {
+        "P9": {"team_id": "BAL", "decision": "pending", "salary": 9_000_000},
+    }}, data_dir=tmp_path)
+    result = resolve_qualifying_offer("BAL", "P9", 2027, tender=True, data_dir=tmp_path)
+    assert result == {"applied": True, "decision": "retired"}
+    assert load_qo_state(2027, data_dir=tmp_path)["players"]["P9"]["decision"] == "retired"
+    assert not (tmp_path / "contracts.json").exists()
+
+
+def test_the_rollover_judges_cpu_non_tenders_as_new_free_agents():
+    """Arbitration's non-tenders lost their deal at this rollover, as the
+    expired contracts did: the rollover hands both to the retirement step
+    and lists a non-tender who retires under his old club."""
+
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "services" / "league_rollover.py").read_text(encoding="utf-8")
+    finance = src.index("run_offseason_financial_rollover(")
+    tenders = src.index('"cpu_non_tender_clubs"')
+    retire = src.index("run_yearly_retirements(")
+    assert finance < tenders < retire
+    assert "list(_non_tenders)" in src
+    assert "expiring={**_non_tenders, **_expiring_clubs}" in src
+    flow = (Path(__file__).resolve().parents[1] / "services" / "offseason_finance_flow.py").read_text(encoding="utf-8")
+    assert '"cpu_non_tender_clubs": cpu_non_tender_clubs' in flow
