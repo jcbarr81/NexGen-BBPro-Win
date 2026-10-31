@@ -233,6 +233,28 @@ Staff editor.
 The **26-Man Active Roster** tutorial (Help → Tutorials) walks through the same
 rules.
 
+#### Retirements
+
+Players retire at the season rollover, and owners' players can retire too.
+The page lists who left your club at the rollover, and the dashboard shows it
+as well.
+
+- **Age comes first.** Hardly anyone retires before 31. The yearly chance
+  climbs from there to about half at 39 and nearly everyone by 45.
+- **Better players last longer.** Each player is compared with the others at
+  his level in your league. A top player is far less likely to retire than an
+  average one, and a fringe player far more. A star can still play into his
+  40s, and a fading bench player usually goes in his mid-30s.
+- **The minors age faster.** A 30-year-old still in AAA is treated like a
+  34-year-old big leaguer, and a Low-A player past 25 is near the end.
+- **A longer contract helps a little.** A big leaguer with more than the
+  coming season left on his deal is a bit less likely to walk away.
+- **Unsigned free agents retire too.** A veteran nobody signs usually hangs it
+  up. A player who went a whole season unsigned often quits at any age. A
+  player whose contract has only just run out is judged by his age alone.
+- The outcome for each player is fixed for that season, so running the same
+  rollover again gives the same retirements.
+
 ### Lineup
 
 Tabs for **vs LHP** and **vs RHP** (separate batting orders) plus a **Pitching

@@ -11,85 +11,190 @@ and current overall rating. Retirees are:
   - Surfaced as a ``retirement`` news event so the league feed reflects
     the move
 
-Pure rule-based; no random rolls. Tunable via the constants below.
+Unsigned free agents are considered too (backlog #52a, 8.6.5): a veteran
+nobody signed usually hangs it up, and a player nobody signed all season
+often quits at any age.
+
+How it decides (backlog #52a, 8.6.5). Each player has a chance of retiring
+that climbs with age (``_ACT_CHANCE_BY_AGE``, close to the real game: hardly
+anyone before 31, about half at 39). The minors and free agency read the same
+curve some years older (``_AGE_OFFSET``): a 30-year-old still in AAA is where
+a 34-year-old big leaguer is. The chance is then scaled by how good the
+player is against the others at his level IN HIS OWN LEAGUE (a percentile,
+so it means the same on either rating scale and as ratings drift): a top
+player's chance is about a third of the average, a bottom one's nearly three
+times it. A big leaguer with more than this year left on his deal is a
+little less likely to walk away from the money.
+
+The roll is not random: it is drawn from the player's id and the season
+(``_draw``), so running the same offseason twice retires the same players.
+
+The rules before 8.6.5 were fixed (age, OVR) bars of 45-99 that engine-scale
+overalls (big leaguers ~49-57) almost never reach, so everyone past an age
+retired whatever his quality, and free agents never retired at all.
 """
 
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
 from utils.player_overall import player_overall_score
 
-# Retirement is graded by age AND roster level. Bars are higher in the
-# minors because a player stuck at AAA into their 30s isn't going to
-# get called up — the writing's on the wall. Career LOW guys are
-# essentially out at 27+ unless they're elite prospects.
-#
-# Each list is (min_age, min_OVR_to_continue), sorted oldest-first.
-# Walk the tiers and pick the first one that applies.
-
-# Major-league tier — there's no hard cap, true outliers can play
-# into their late 40s if they're still elite (Ichiro/Bartolo/Julio
-# Franco profiles).
-_THRESHOLDS_ACT: tuple[tuple[int, int], ...] = (
-    (46, 90),  # 46+: only the top 1% of all players keeps going
-    (44, 85),  # 44-45: still elite-only
-    (42, 80),  # 42-43: clearly above-average vets
-    (38, 60),  # 38-41: "declining" — washed bench guys retire
-    (36, 45),  # 36-37: replacement-level fringe guys retire
-)
-
-# AAA tier — career minor-leaguers need to be exceptional to keep
-# pushing for a callup. After 30, the bar climbs fast.
-_THRESHOLDS_AAA: tuple[tuple[int, int], ...] = (
-    (44, 95),  # late 40s in AAA: essentially impossible
-    (40, 85),
-    (35, 70),
-    (32, 60),  # 32+ in AAA: need to still profile as a callup
-    (30, 50),  # 30+ in AAA: average-ish guys hang it up
-)
-
-# LOW tier — short ladder. Past 27 in LOW you've washed out as a
-# prospect; only true late bloomers (rare) get to keep going.
-_THRESHOLDS_LOW: tuple[tuple[int, int], ...] = (
-    (32, 99),  # 32 in LOW: gone unless God-tier (functionally never)
-    (29, 80),
-    (27, 65),
-    (25, 50),
-)
-
-# DL/IR mirror ACT — being injured doesn't reset retirement math.
-RETIREMENT_THRESHOLDS_BY_LEVEL: dict[str, tuple[tuple[int, int], ...]] = {
-    "ACT": _THRESHOLDS_ACT,
-    "AAA": _THRESHOLDS_AAA,
-    "LOW": _THRESHOLDS_LOW,
-    "DL": _THRESHOLDS_ACT,
-    "IR": _THRESHOLDS_ACT,
+# A big leaguer's yearly chance of retiring, by age, for an average player
+# at his level. Ages below the first entry carry no chance; ages past the
+# last use the last.
+_ACT_CHANCE_BY_AGE: Dict[int, float] = {
+    31: 0.02,
+    32: 0.04,
+    33: 0.07,
+    34: 0.11,
+    35: 0.16,
+    36: 0.23,
+    37: 0.31,
+    38: 0.40,
+    39: 0.50,
+    40: 0.60,
+    41: 0.70,
+    42: 0.78,
+    43: 0.85,
+    44: 0.90,
+    45: 0.95,
 }
 
+# The minors and free agency read the big-league curve this many years
+# older. The injured lists are big leaguers.
+_AGE_OFFSET: Dict[str, int] = {
+    "ACT": 0,
+    "DL": 0,
+    "IR": 0,
+    "AAA": 4,
+    "LOW": 9,
+    "FA": 2,
+    "FA_NEW": 2,
+}
 
-def _retirement_threshold(age: int, level: Optional[str] = None) -> Optional[int]:
-    """Return the minimum OVR required to keep playing at *age* on *level*.
+# Unsigned: nobody wanted him this winter.
+_FREE_AGENT_FACTOR = 1.5
+# Unsigned through the whole season just ended (not a contract that ran
+# out at this rollover): an average one quits at least this often, at any
+# age, before the quality scaling. Released minor leaguers mostly do.
+_IDLE_FREE_AGENT_CHANCE = 0.25
+# A big leaguer with more than the coming season left on his contract.
+_MULTI_YEAR_CONTRACT_FACTOR = 0.6
+_MAX_CHANCE = 0.97
 
-    Returns ``None`` when the player is too young for any tier to
-    apply (no retirement pressure at all).
+# Quality scaling: chance x 2 ** (_QUALITY_SPREAD * (0.5 - percentile)).
+# The median player keeps the curve; the best about x0.35, the worst
+# about x2.8.
+_QUALITY_SPREAD = 3.0
+
+# A level with fewer players than this has no meaningful ranking; everyone
+# on it counts as average.
+_MIN_RANKED = 5
+
+# A free agent through the season just ended, and one whose contract ran
+# out at this rollover.
+FREE_AGENT = "FA"
+NEW_FREE_AGENT = "FA_NEW"
+_FREE_AGENT_LEVELS = {FREE_AGENT, NEW_FREE_AGENT}
+
+
+def _level_group(level: Optional[str]) -> str:
+    """The pool a player is ranked in: the big leagues (with the injured
+    lists), AAA or LOW. A free agent is measured against big leaguers."""
+
+    norm = (level or "ACT").strip().upper()
+    if norm in {"AAA", "LOW"}:
+        return norm
+    return "ACT"
+
+
+def _age_chance(age: int, level: str) -> float:
+    effective = int(age) + _AGE_OFFSET.get(level, 0)
+    if effective < min(_ACT_CHANCE_BY_AGE):
+        return 0.0
+    return _ACT_CHANCE_BY_AGE[min(effective, max(_ACT_CHANCE_BY_AGE))]
+
+
+def retirement_chance(
+    age: Optional[int],
+    level: Optional[str] = None,
+    percentile: float = 0.5,
+    *,
+    multi_year_contract: bool = False,
+) -> float:
+    """The chance (0-1) that a player of ``age`` on ``level`` (ACT, DL, IR,
+    AAA, LOW, ``"FA"`` for a free agent unsigned all season or ``"FA_NEW"``
+    for one whose contract just ran out) retires this offseason.
+
+    ``percentile`` is where his overall ranks among the players at his level
+    in his league (0 the worst, 1 the best; see :func:`level_percentiles`).
     """
 
-    tiers = RETIREMENT_THRESHOLDS_BY_LEVEL.get(
-        (level or "ACT").strip().upper(),
-        _THRESHOLDS_ACT,
-    )
-    for tier_age, tier_overall in tiers:
-        if age >= tier_age:
-            return tier_overall
-    return None
+    if age is None:
+        return 0.0
+    norm = (level or "ACT").strip().upper()
+    chance = _age_chance(age, norm)
+    if norm in _FREE_AGENT_LEVELS:
+        chance *= _FREE_AGENT_FACTOR
+    if norm == FREE_AGENT:
+        chance = max(chance, _IDLE_FREE_AGENT_CHANCE)
+    if chance <= 0.0:
+        return 0.0
+    p = min(1.0, max(0.0, float(percentile)))
+    chance *= 2.0 ** (_QUALITY_SPREAD * (0.5 - p))
+    if norm not in _FREE_AGENT_LEVELS and multi_year_contract:
+        chance *= _MULTI_YEAR_CONTRACT_FACTOR
+    return min(_MAX_CHANCE, chance)
+
+
+def level_percentiles(
+    scores: Mapping[str, tuple[str, Optional[float]]],
+) -> Dict[str, float]:
+    """``{player_id: percentile}`` from ``{player_id: (level, overall)}``.
+
+    Players are ranked within their level group (big leagues with the
+    injured lists, AAA, LOW); a free agent (level ``"FA"`` or ``"FA_NEW"``)
+    is placed among the big leaguers without joining their pool. Ties share the middle of
+    their rank. A player without an overall, or on a level with fewer than
+    ``_MIN_RANKED`` rated players, counts as average (0.5).
+    """
+
+    pools: Dict[str, List[float]] = {}
+    for level, score in scores.values():
+        if score is None or (level or "").strip().upper() in _FREE_AGENT_LEVELS:
+            continue
+        pools.setdefault(_level_group(level), []).append(float(score))
+    for pool in pools.values():
+        pool.sort()
+
+    from bisect import bisect_left, bisect_right
+
+    out: Dict[str, float] = {}
+    for pid, (level, score) in scores.items():
+        pool = pools.get(_level_group(level), [])
+        if score is None or len(pool) < _MIN_RANKED:
+            out[pid] = 0.5
+            continue
+        below = bisect_left(pool, float(score))
+        ties = bisect_right(pool, float(score)) - below
+        out[pid] = (below + ties / 2.0) / len(pool)
+    return out
+
+
+def _draw(player_id: str, season_year: int) -> float:
+    """A uniform number in [0, 1) fixed by the player and the season."""
+
+    digest = hashlib.sha256(f"retire:{player_id}:{int(season_year)}".encode()).hexdigest()
+    return int(digest[:13], 16) / float(16 ** 13)
 
 _RETIREES_FILENAME = "retired_players.json"
 
@@ -128,33 +233,52 @@ def is_retired(player_id: str, *, data_dir: Optional[Path] = None) -> bool:
 
 
 def _player_overall(player: object) -> int:
-    """The overall the retirement bars are checked against: the shared
-    overall (``utils.player_overall``, backlog #52) in engine points, like
-    the bars. It used to be a flat mean (arm and endurance for pitchers);
-    on the live leagues the same bars retire the same number of players
-    (181 against 182) with either score."""
+    """A player's overall for retirement: the shared overall
+    (``utils.player_overall``, backlog #52), rounded. Players are ranked at
+    their level by it (:func:`decide_retirements`)."""
 
     score = player_overall_score(player)
     return int(round(score)) if score is not None else 50
 
 
+def _reason(level: str, age: int, percentile: float) -> str:
+    if level in _FREE_AGENT_LEVELS:
+        return "unsigned"
+    if level == "AAA":
+        return "career minor leaguer"
+    if level == "LOW":
+        return "prospect washout"
+    if percentile >= 0.75:
+        return "goes out on top"
+    if age >= 40:
+        return "can't keep up"
+    if percentile < 0.33:
+        return "washed"
+    return "declining"
+
+
 def should_retire(
     player: object,
     *,
+    season_year: int,
     age: Optional[int] = None,
-    overall: Optional[int] = None,
     level: Optional[str] = None,
+    percentile: float = 0.5,
+    multi_year_contract: bool = False,
 ) -> Optional[str]:
-    """Return a short reason string when the player should retire.
+    """Return a short reason string when the player retires this offseason.
 
-    Reasons describe why they're done:
-      - ``"can't keep up"`` — failed the age-graded OVR threshold (ACT)
-      - ``"career minor leaguer"`` — stuck at AAA past their development window
-      - ``"prospect washout"`` — stuck at LOW past their development window
-      - ``"declining"`` — older + below-average rating (ACT)
-      - ``"washed"`` — fringe major-leaguer past their prime
+    ``season_year`` is the league year the rollover starts (it fixes the
+    roll, :func:`_draw`); ``percentile`` is his rank at his level
+    (:func:`level_percentiles`). Reasons:
+      - ``"goes out on top"`` — still one of the better big leaguers
+      - ``"declining"`` — an average big leaguer past his prime
+      - ``"washed"`` — a fringe big leaguer
+      - ``"can't keep up"`` — 40 or older
+      - ``"career minor leaguer"`` / ``"prospect washout"`` — AAA / LOW
+      - ``"unsigned"`` — a free agent nobody signed
 
-    Returns ``None`` when the player still belongs in the league.
+    Returns ``None`` when the player plays on.
     """
 
     if age is None:
@@ -164,23 +288,88 @@ def should_retire(
     if age is None:
         return None
     norm_level = (level or "ACT").strip().upper()
-    threshold = _retirement_threshold(age, norm_level)
-    if threshold is None:
+    chance = retirement_chance(
+        age, norm_level, percentile, multi_year_contract=multi_year_contract
+    )
+    if chance <= 0.0:
         return None
-    if overall is None:
-        overall = _player_overall(player)
-    if overall >= threshold:
+    pid = str(getattr(player, "player_id", "") or "")
+    if _draw(pid, season_year) >= chance:
         return None
-    # Reason maps to the level + age tier that triggered.
-    if norm_level == "AAA":
-        return "career minor leaguer"
-    if norm_level == "LOW":
-        return "prospect washout"
-    if age >= 42:
-        return "can't keep up"
-    if age >= 38:
-        return "declining"
-    return "washed"
+    return _reason(norm_level, age, percentile)
+
+
+def decide_retirements(
+    candidates: Iterable[Mapping[str, Any]],
+    *,
+    season_year: int,
+) -> List[Dict[str, Any]]:
+    """Who retires among ``candidates``, each ``{"player", "age", "level",
+    "multi_year_contract"?}`` (``level`` ``"FA"`` / ``"FA_NEW"`` for a free
+    agent, see :func:`retirement_chance`).
+
+    The candidates are the whole league: they are ranked against each other
+    at their level (:func:`level_percentiles`) before anyone is decided.
+    Returns the retirees as ``{"player", "age", "level", "overall",
+    "percentile", "reason"}``.
+    """
+
+    rows = []
+    scores: Dict[str, tuple[str, Optional[float]]] = {}
+    for item in candidates:
+        player = item.get("player")
+        pid = str(getattr(player, "player_id", "") or "").strip()
+        if not pid:
+            continue
+        score = player_overall_score(player)
+        scores[pid] = (str(item.get("level") or "ACT"), score)
+        rows.append((pid, item, score))
+    ranks = level_percentiles(scores)
+    out: List[Dict[str, Any]] = []
+    for pid, item, score in rows:
+        level = str(item.get("level") or "ACT").strip().upper()
+        reason = should_retire(
+            item["player"],
+            season_year=season_year,
+            age=item.get("age"),
+            level=level,
+            percentile=ranks[pid],
+            multi_year_contract=bool(item.get("multi_year_contract")),
+        )
+        if not reason:
+            continue
+        out.append(
+            {
+                "player": item["player"],
+                "age": item.get("age"),
+                "level": level,
+                "overall": int(round(score)) if score is not None else 50,
+                "percentile": round(ranks[pid], 3),
+                "reason": reason,
+            }
+        )
+    return out
+
+
+def _contract_years_left(data_dir: Path) -> Dict[str, int]:
+    """``{player_id: years_left}`` from the league's contracts (empty when
+    there are none or they can't be read)."""
+
+    try:
+        from services.contracts_service import load_contracts_payload
+
+        contracts = load_contracts_payload(data_dir=data_dir).get("players") or {}
+    except Exception:
+        return {}
+    out: Dict[str, int] = {}
+    for pid, raw in contracts.items():
+        if not isinstance(raw, Mapping):
+            continue
+        try:
+            out[str(pid)] = int(raw.get("years_left", 1) or 1)
+        except (TypeError, ValueError):
+            out[str(pid)] = 1
+    return out
 
 
 def _load_team_rosters(
@@ -222,8 +411,14 @@ def run_yearly_retirements(
     *,
     season_year: Optional[int] = None,
     data_dir: Optional[Path] = None,
+    new_free_agents: Iterable[str] = (),
 ) -> Dict[str, Any]:
-    """Apply retirement rules to every rostered player. Returns a summary."""
+    """Apply retirement rules to every rostered player and every unsigned
+    free agent. Returns a summary.
+
+    ``new_free_agents`` are the players whose contracts ran out at this
+    rollover (the contract step's expired ids): they are judged as free
+    agents by age, not as players nobody signed all season."""
 
     resolved = data_dir or get_data_dir()
     rosters_dir = resolved / "rosters"
@@ -245,18 +440,42 @@ def run_yearly_retirements(
     except Exception:
         return {"retirees": [], "count": 0, "error": "failed to load players.csv"}
 
-    retirees: List[Dict[str, Any]] = []
+    # A free agent is a player no club owns (no roster file, no contract)
+    # who has not retired already; a contract on no roster file keeps the
+    # player his club's, as the free-agent list counts him.
+    from utils.roster_ownership import club_owned_players
+
+    owned = club_owned_players(resolved)
+    registry = load_retirees(resolved)
+    years_left = _contract_years_left(resolved)
+    year = int(season_year or datetime.utcnow().year)
+    new_free = {str(pid).strip() for pid in (new_free_agents or ())}
+
+    candidates: List[Dict[str, Any]] = []
     for player in players:
         pid = str(getattr(player, "player_id", "") or "").strip()
-        if not pid or pid not in rostered_ids:
+        if not pid or pid in registry:
+            continue
+        if pid in rostered_ids:
+            level = level_for.get(pid, "ACT")
+        elif pid not in owned:
+            level = NEW_FREE_AGENT if pid in new_free else FREE_AGENT
+        else:
             continue
         bd = getattr(player, "birthdate", None)
-        age = calculate_age(str(bd)) if bd else None
-        overall = _player_overall(player)
-        level = level_for.get(pid, "ACT")
-        reason = should_retire(player, age=age, overall=overall, level=level)
-        if not reason:
-            continue
+        candidates.append(
+            {
+                "player": player,
+                "age": calculate_age(str(bd)) if bd else None,
+                "level": level,
+                "multi_year_contract": years_left.get(pid, 0) > 1,
+            }
+        )
+
+    retirees: List[Dict[str, Any]] = []
+    for decided in decide_retirements(candidates, season_year=year):
+        player = decided["player"]
+        pid = str(getattr(player, "player_id", "") or "").strip()
         retirees.append(
             {
                 "player_id": pid,
@@ -265,10 +484,10 @@ def run_yearly_retirements(
                 "primary_position": getattr(player, "primary_position", "") or "",
                 "is_pitcher": bool(getattr(player, "is_pitcher", False)),
                 "team_id": team_for.get(pid, ""),
-                "level": level,
-                "age": age,
-                "overall": overall,
-                "reason": reason,
+                "level": decided["level"],
+                "age": decided["age"],
+                "overall": decided["overall"],
+                "reason": decided["reason"],
             }
         )
 
@@ -277,8 +496,6 @@ def run_yearly_retirements(
 
     # Persist to the registry keyed by player_id so other services can
     # check is_retired() and the UI can render a Retirements section.
-    registry = load_retirees(resolved)
-    year = int(season_year or datetime.utcnow().year)
     timestamp = datetime.utcnow().isoformat() + "Z"
     for entry in retirees:
         registry[entry["player_id"]] = {
@@ -294,10 +511,9 @@ def run_yearly_retirements(
     try:
         from services.contracts_service import release_contracts_to_free_agency
 
-        release_contracts_to_free_agency(
-            [entry["player_id"] for entry in retirees],
-            data_dir=resolved,
-        )
+        signed = [e["player_id"] for e in retirees if e["level"] not in _FREE_AGENT_LEVELS]
+        if signed:
+            release_contracts_to_free_agency(signed, data_dir=resolved)
     except Exception:
         pass
 
@@ -368,9 +584,13 @@ def _scrub_rosters(rosters_dir: Path, retired_ids: Iterable[str]) -> None:
 
 
 __all__ = [
-    "RETIREMENT_THRESHOLDS_BY_LEVEL",
+    "FREE_AGENT",
+    "NEW_FREE_AGENT",
+    "decide_retirements",
     "is_retired",
+    "level_percentiles",
     "load_retirees",
+    "retirement_chance",
     "run_yearly_retirements",
     "save_retirees",
     "should_retire",

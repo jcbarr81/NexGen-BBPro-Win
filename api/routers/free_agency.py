@@ -99,6 +99,18 @@ def _refuse_if_owned(player_id: str, team_id: Optional[str] = None) -> None:
                 "level": owner[1],
             },
         )
+    # A retired player is no one's to sign (8.6.5: free agents retire too).
+    from services.player_retirement import is_retired
+
+    if is_retired(player_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "retired",
+                "message": f"{player_id} has retired.",
+                "player_id": player_id,
+            },
+        )
 
 # rating-scale: display keys; the summary shows the stored ratings
 _SUMMARY_RATING_KEYS = (

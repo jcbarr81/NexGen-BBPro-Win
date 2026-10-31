@@ -55,8 +55,14 @@ def report(tmp_path_factory):
 
 
 def test_the_regulars_keep_their_level(report):
+    # 5.5 since 8.6.5 (realistic retirement, backlog #52a), was 5.0. Small
+    # leagues are noisy: over seeds 1-10 the largest drift was 2.4-4.7
+    # under the old retirement bars and 2.9-5.2 under the new rules (this
+    # seed: 5.2), and moving any retirement setting a notch moves this seed
+    # anywhere in 3.4-4.3. The full-size runs did not move (calibration
+    # league, seeds 1-3: 4.31 / 3.60 / 3.92 against 4.32 / 3.75 / 3.85).
     drift = gate(report)["max_mean_drift"]
-    assert max(drift.values()) <= 5.0, str(drift)
+    assert max(drift.values()) <= 5.5, str(drift)
 
 
 def test_the_regulars_keep_their_spread(report):

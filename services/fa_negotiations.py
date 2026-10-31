@@ -556,16 +556,32 @@ def process_negotiations(
     # a deal. Older builds listed injured players as free agents, so a
     # window could be open on one.
     owned: Dict[str, Any] = {}
+    retired: set[str] = set()
     if any(isinstance(n, dict) and n.get("status") == "open" for n in negs.values()):
+        base = get_data_dir() if data_dir is None else Path(data_dir)
         try:
             from utils.roster_ownership import club_owned_players
 
-            owned = club_owned_players(get_data_dir() if data_dir is None else Path(data_dir))
+            owned = club_owned_players(base)
         except Exception:
             owned = {}
+        # 8.6.5: unsigned free agents retire at the rollover too; an offer
+        # still open on one closes without a deal.
+        try:
+            from services.player_retirement import load_retirees
+
+            retired = set(load_retirees(base))
+        except Exception:
+            retired = set()
 
     for pid, neg in list(negs.items()):
         if not isinstance(neg, dict) or neg.get("status") != "open":
+            continue
+        if pid in retired:
+            neg["status"] = "resolved"
+            neg["resolution"] = {"outcome": "retired", "date": str(sim_date)}
+            summary.setdefault("retired", []).append(pid)
+            changed = True
             continue
         if pid in owned:
             team_id, level = owned[pid]

@@ -782,6 +782,8 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
               ? `${n.player_name ?? n.player_id} took no deal`
               : r?.outcome === "not_a_free_agent"
               ? `${n.player_name ?? n.player_id} is not a free agent (on ${r?.team_id ?? "another club"}'s roster)`
+              : r?.outcome === "retired"
+              ? `${n.player_name ?? n.player_id} retired`
               : r?.outcome === "reversed"
               ? `Signing of ${n.player_name ?? n.player_id} reversed${r?.note ? `: ${r.note}` : ""}`
               : `Offer to ${n.player_name ?? n.player_id} withdrawn`;

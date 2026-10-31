@@ -206,7 +206,17 @@ to yearly promotion, then switch to the shared score.
   blend does not fix it (11-21). Either balance the generator or pick by
   team need (the `draft_ai` item above).
 
-## 52a. Retirement bars retire almost everyone past an age
+## 52a. Retirement bars retire almost everyone past an age — SHIPPED 8.6.5
+
+Shipped 8.6.5 (2026-10-30): an age curve of retirement chances scaled by the
+player's percentile at his level in his league, deterministic per player and
+season, unsigned free agents included (`services/player_retirement`). The
+original finding is kept below.
+
+Follow-up (open): **warn owners before a player retires** -- a "considering
+retirement" note on the player page during his last season (the chance is
+known in advance from `retirement_chance`). Proposed with 8.6.5 and left
+for later.
 
 Found measuring #52 (2026-10-27). The bars in
 `services/player_retirement` are in engine points, where big leaguers

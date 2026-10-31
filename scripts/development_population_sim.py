@@ -5,8 +5,8 @@ The stationarity gate of the development model (``playbalance/development``,
 (``utils.rating_scale.stretch_rows``) is run through N offseasons of
 
 1. development (the real model, every player in the file);
-2. retirements (the real rules, ``services.player_retirement.should_retire``,
-   by roster level);
+2. retirements (the real rules, ``services.player_retirement.decide_retirements``,
+   by roster level, free agents included);
 3. the amateur draft: a class from the real generator on scale 2
    (``playbalance.draft_pool.generate_draft_pool``), picked in a random
    order by the real draft AI (``services.draft_ai.score_prospect``), the
@@ -22,9 +22,8 @@ active hitters and best ten active pitchers by the shared overall. No game
 is played: playing time does not feed development.
 
 Simplifications, stated plainly: positions are not balanced on the active
-roster; free agents never retire (as in a league today) and are not signed
-past 35; injuries are ignored; the draft order is random; budgets and
-training focus are neutral unless given.
+roster; free agents are not signed past 35; injuries are ignored; the
+draft order is random; budgets and training focus are neutral unless given.
 
 Nothing here touches a league directory. The league is read, converted in
 memory and worked on in a temporary folder.
@@ -244,23 +243,26 @@ def _develop_all(league: League, season: int, params: DevelopmentParams,
 
 
 def _retire(league: League, season: int) -> int:
-    from services.player_retirement import should_retire
+    from services.player_retirement import FREE_AGENT, decide_retirements
 
     on = date(season - 1, 10, 31)
-    gone = []
-    for pid, team in list(league.team.items()):
-        player = league.players[pid]
-        if should_retire(player, age=_age(player, on), level=league.level.get(pid, "ACT")):
-            gone.append(pid)
+    free = set(league.free_agents())
+    candidates = [
+        {
+            "player": league.players[pid],
+            "age": _age(league.players[pid], on),
+            "level": FREE_AGENT if pid in free else league.level.get(pid, "ACT"),
+        }
+        for pid in list(league.team) + sorted(free)
+    ]
+    gone = [
+        str(getattr(r["player"], "player_id"))
+        for r in decide_retirements(candidates, season_year=season)
+    ]
     for pid in gone:
         league.team.pop(pid, None)
         league.level.pop(pid, None)
         league.players.pop(pid, None)
-    # Free agents never retire in a league; past signing age they are only
-    # dead weight for this simulation.
-    for pid in league.free_agents():
-        if _age(league.players[pid], on) > FREE_AGENT_MAX_AGE + 4:
-            league.players.pop(pid, None)
     return len(gone)
 
 

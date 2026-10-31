@@ -1152,8 +1152,9 @@ export interface FaOffer {
 }
 
 export interface FaNegotiationResolution {
-  /** reversed (8.2.1): a signing undone afterwards (``note`` says why). */
-  outcome: "signed" | "no_deal" | "withdrawn" | "not_a_free_agent" | "reversed";
+  /** reversed (8.2.1): a signing undone afterwards (``note`` says why).
+   *  retired (8.6.5): the free agent retired at the rollover. */
+  outcome: "signed" | "no_deal" | "withdrawn" | "not_a_free_agent" | "reversed" | "retired";
   note?: string;
   signed_team?: string;
   /** not_a_free_agent: the club that owns the player. */

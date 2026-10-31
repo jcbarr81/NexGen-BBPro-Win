@@ -327,7 +327,12 @@ class LeagueRolloverService:
         try:
             from services.player_retirement import run_yearly_retirements
 
-            retire_summary = run_yearly_retirements(season_year=next_year)
+            # 8.6.5: a contract that ran out at this rollover makes a new
+            # free agent, judged by age rather than as one nobody signed.
+            retire_summary = run_yearly_retirements(
+                season_year=next_year,
+                new_free_agents=(contract_rollover or {}).get("expired_player_ids") or [],
+            )
             if retire_summary:
                 artifacts["retirements"] = json.dumps(
                     {

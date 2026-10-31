@@ -118,7 +118,9 @@ def record_departures(
     retired_ids = set()
     for item in retirees or ():
         pid = str(item.get("player_id") or "").strip()
-        team = str(item.get("team_id") or "").strip().upper()
+        # 8.6.5: a player whose contract ran out at this rollover can retire
+        # as a free agent; he is listed as his old club's retiree.
+        team = str(item.get("team_id") or expiring.get(pid, "") or "").strip().upper()
         if not pid or not team:
             continue
         retired_ids.add(pid)
