@@ -521,3 +521,16 @@ def test_the_notification_does_not_carry_the_boards_reasoning(monkeypatch):
     assert len(sent) == 1
     assert "Joe C2 (C)" in sent[0].message
     assert "SS1" not in sent[0].message and "My Board" in sent[0].message
+
+
+def test_a_prospect_row_carries_every_pitch_for_his_card():
+    """8.7.2: the board's prospect card shows every rating, so the row
+    carries the screwball and knuckleball too (zero: he doesn't throw it)."""
+
+    row = _p("D1", "P", level=60)
+    row["scb"] = 0
+    row["kn"] = 55
+    shown = D._prospect_row(row, 1, available=True)["ratings"]
+    assert shown["kn"] == 55
+    assert shown["scb"] == 0
+    assert shown["control"] == 60

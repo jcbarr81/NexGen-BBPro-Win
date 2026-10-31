@@ -474,7 +474,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Building your list",
-                "<p>On the <b>Now</b> tab, click the <b>star</b> next to any prospect in the draft class list to add him to the end of your board (click again to remove). On <b>My Board</b>, drag players into your order and add a private note to each.</p>"
+                "<p>On the <b>Now</b> tab, click the <b>star</b> next to any prospect in the draft class list to add him to the end of your board (click again to remove). On <b>My Board</b>, drag players into your order and add a private note to each. Each row shows his key ratings; click a player's name (here or in the draft class list) for a card with every rating.</p>"
                 "<p>Players another club takes stay on your board, greyed out with who took them. The board simply goes down the list to the first player it can take.</p>"
                 "<p>For each player you can also set:</p>"
                 "<ul>"

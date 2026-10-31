@@ -458,7 +458,9 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
   - **My Board** (8.7.0) is the owner's private draft board: who to take when a
     pick is made for the club (the pick clock ran out, the commissioner
     auto-picked or finished the draft, or the owner's own Auto-pick). Star a
-    prospect in the draft class list to add him; drag to rank; per player a
+    prospect in the draft class list to add him; drag to rank. Each row shows
+    his key ratings, and clicking a name (on the board or in the draft class
+    list) opens a card with every rating (8.7.2). Per player a
     private note, *not before round N* and a group (only one of a group is
     taken). Rules: *at most N* per position (IF, OF and P cover families),
     *at least N at a position by round R*, optional tiers (equal players: the

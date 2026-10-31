@@ -382,6 +382,8 @@ def _prospect_row(
                 "cu",
                 "cb",
                 "si",
+                "scb",
+                "kn",
                 "control",
                 "movement",
                 "endurance",

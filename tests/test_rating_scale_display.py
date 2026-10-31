@@ -38,9 +38,11 @@ from tests import rating_scale_support as support
 # what every league sees today: only re-pin it on purpose. The draft entries
 # were re-pinned for 8.6.4 (backlog #52): a scale 1 draft board shows the
 # shared overall its players show once drafted, not the old flat mean.
+# draft/pool re-pinned for 8.7.2: the pool also carries the screwball and
+# knuckleball ratings (for the prospect card); nothing it showed changed.
 PINNED_SCALE_1 = {
     "contracts": "c1d44a4b8766418b23a66bc8fa97e590a419f5c7963d42a7e4d7fa1d4c6f9e47",
-    "draft/pool": "33f08bea767c21730fa9cd879e36fd963b83767c5bb064ff8ee81f40fc52e934",
+    "draft/pool": "5734c807e1b81b7150722747f0bdce28ddd59b59894bd5e6d6ca355f802b5408",
     "draft/state.selected": "2013de164017f4d14a1ac852b5289327b8d3b7b5c8149b2713fc6bc0bb13fd98",
     "free-agents": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "players/browse": "5874bd35c4f39b178c1ab004d72885bff4eb318cc1c38cdaa9142c8458e94e3c",
@@ -64,9 +66,10 @@ PINNED_SCALE_1 = {
 # Finance tutorial's "Extending your players" step; for 8.6.0: the Free
 # Agency tutorial's asking-price wording; for 8.7.0: the Draft Board guide
 # and the pick-clock step's draft-board wording; for 8.7.1: the Roster
-# tutorial's "Players who may retire" step).
+# tutorial's "Players who may retire" step; for 8.7.2: the Draft Board
+# guide's prospect-card sentence).
 PINNED_SCALE_1_TUTORIALS = (
-    "6c15cdae495fe83fa303a5c16017d8bbf3e4191bf448b4c5bc259c29044188e0"
+    "5e26c3548debfac22c7583412701eece1f4dd7cf2aed7ce01df61e001baa4bbc"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

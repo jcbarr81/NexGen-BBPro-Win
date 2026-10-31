@@ -48,6 +48,7 @@ import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
 import { DraftTimingCard } from "@/components/DraftTimingCard";
 import { DraftBoardTab, useDraftBoardToggle } from "@/components/DraftBoardTab";
+import { ProspectCardDialog } from "@/components/ProspectCard";
 import { StatCard } from "@/components/StatCard";
 import { StarRating } from "@/components/StarRating";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
@@ -708,6 +709,7 @@ function DraftControlsPanel({
   }, [poolQ.data, filter, kind, sortKey, sortDir]);
 
   const ratingCols = kind === "pitchers" ? DRAFT_PITCHER_COLS : DRAFT_HITTER_COLS;
+  const [cardProspect, setCardProspect] = useState<DraftProspect | null>(null);
 
   function toggleSort(key: DraftSortKey) {
     if (sortKey === key) {
@@ -1045,7 +1047,17 @@ function DraftControlsPanel({
                         </td>
                       )}
                       <td className="px-3 py-2 font-semibold">
-                        {p.last_name}, {p.first_name}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCardProspect(p);
+                          }}
+                          className="text-left hover:text-amber hover:underline"
+                          title="See all his ratings"
+                        >
+                          {p.last_name}, {p.first_name}
+                        </button>
                       </td>
                       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                         {p.primary_position || "—"}
@@ -1083,6 +1095,10 @@ function DraftControlsPanel({
                 })}
               </tbody>
             </table></div>
+            <ProspectCardDialog
+              prospect={cardProspect}
+              onClose={() => setCardProspect(null)}
+            />
           </div>
         )}
 

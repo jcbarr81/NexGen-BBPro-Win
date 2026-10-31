@@ -50,6 +50,7 @@ import {
   type DraftBoardView,
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { ProspectCardDialog, ProspectRatingLine } from "@/components/ProspectCard";
 import {
   Badge,
   Button,
@@ -637,6 +638,8 @@ function BoardTable({
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const ids = entries.map((e) => e.player_id);
+  const [cardId, setCardId] = useState<string | null>(null);
+  const cardRow = cardId ? rowsById.get(cardId) : undefined;
 
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e;
@@ -674,6 +677,9 @@ function BoardTable({
                 <th className="px-2 py-2 text-right font-semibold">Pos</th>
                 <th className="px-2 py-2 text-right font-semibold">Age</th>
                 <th className="px-2 py-2 text-right font-semibold">OVR</th>
+                <th className="px-3 py-2 text-left font-semibold" title="Click a name for every rating">
+                  Ratings
+                </th>
                 <th className="px-3 py-2 text-left font-semibold" title="Of a group, only one player is taken">
                   Group
                 </th>
@@ -703,6 +709,7 @@ function BoardTable({
                     onRemove={() => onChange(entries.filter((_, i) => i !== idx))}
                     onNewTier={() => newTierFrom(idx)}
                     onMergeTier={idx > 0 ? () => mergeTierAt(idx) : undefined}
+                    onOpenCard={() => setCardId(entry.player_id)}
                   />
                 );
               })}
@@ -710,6 +717,11 @@ function BoardTable({
           </table>
         </div>
       </SortableContext>
+      <ProspectCardDialog
+        prospect={cardRow?.prospect ?? null}
+        takenBy={cardRow?.taken?.team_id ?? null}
+        onClose={() => setCardId(null)}
+      />
     </DndContext>
   );
 }
@@ -736,6 +748,7 @@ function SortableBoardRow({
   onRemove,
   onNewTier,
   onMergeTier,
+  onOpenCard,
 }: {
   entry: DraftBoardEntry;
   idx: number;
@@ -749,6 +762,7 @@ function SortableBoardRow({
   onRemove: () => void;
   onNewTier: () => void;
   onMergeTier?: () => void;
+  onOpenCard: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: entry.player_id,
@@ -765,7 +779,7 @@ function SortableBoardRow({
     <>
       {tierHeader != null && (
         <tr className="bg-surfaceAlt/60">
-          <td colSpan={10} className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <td colSpan={11} className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
             <div className="flex items-center justify-between">
               <span>Tier {tierHeader}</span>
               {onMergeTier && !locked && (
@@ -804,18 +818,22 @@ function SortableBoardRow({
         <td className="px-2 py-2 font-mono text-xs text-muted">{idx + 1}</td>
         <td className="px-3 py-2">
           <div className="flex flex-wrap items-center gap-2">
-            {/* A prospect has no player page until he is drafted. */}
-            {taken ? (
-              <Link
-                to={`/player/${encodeURIComponent(entry.player_id)}`}
-                className="font-semibold line-through hover:text-amber"
+            {/* Every rating is on his card (a prospect has no player page
+                until he is drafted; the card links to it once he is). */}
+            {p ? (
+              <button
+                type="button"
+                onClick={onOpenCard}
+                className={cn(
+                  "text-left font-semibold hover:text-amber hover:underline",
+                  taken && "line-through",
+                )}
+                title="See all his ratings"
               >
-                {p ? `${p.last_name}, ${p.first_name}` : entry.player_id}
-              </Link>
+                {p.last_name}, {p.first_name}
+              </button>
             ) : (
-              <span className="font-semibold">
-                {p ? `${p.last_name}, ${p.first_name}` : entry.player_id}
-              </span>
+              <span className="font-semibold">{entry.player_id}</span>
             )}
             {taken && (
               <Badge tone="neutral">
@@ -839,6 +857,9 @@ function SortableBoardRow({
         </td>
         <td className="px-2 py-2 text-right tabular-nums">{p?.age ?? "—"}</td>
         <td className="px-2 py-2 text-right font-semibold tabular-nums">{p?.overall ?? "—"}</td>
+        <td className="min-w-[180px] px-3 py-2">
+          {p ? <ProspectRatingLine prospect={p} /> : <span className="text-subtle">—</span>}
+        </td>
         <td className="px-3 py-2">
           <select
             className={SELECT_CLASS}
