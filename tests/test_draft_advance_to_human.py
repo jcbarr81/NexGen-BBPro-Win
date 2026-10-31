@@ -25,7 +25,7 @@ def draft(monkeypatch):
     def fake_load_state(year):
         return state
 
-    def fake_do_pick(year, st, *, player_id, season_date=None):
+    def fake_do_pick(year, st, *, player_id, season_date=None, announce=True):
         team = D._team_on_clock(st)
         made.append(team)
         st["selected"] = list(st.get("selected") or []) + [

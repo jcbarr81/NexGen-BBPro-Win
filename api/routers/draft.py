@@ -817,14 +817,55 @@ def _best_available(year: int, state: Dict[str, Any]) -> Optional[Dict[str, Any]
     return candidates[0]
 
 
+def _announce_picks(year: int, picks: List[Dict[str, Any]], *, draft_complete: bool) -> None:
+    """Post ``picks`` (``_do_pick`` results) to the league's draft channel on
+    Discord (8.6.6). Best-effort: the picks are already made and saved."""
+
+    if not picks:
+        return
+    try:
+        from services import discord_notify
+        from services.draft_announcement import build_pick_messages
+        from utils import path_utils
+
+        if not discord_notify.is_configured(discord_notify.DRAFT):
+            return
+        prospects = _prospect_lookup(year)
+        rows = []
+        for pick in picks:
+            prospect = prospects.get(str(pick.get("player_id") or ""), {})
+            name = f"{prospect.get('first_name', '')} {prospect.get('last_name', '')}".strip()
+            rows.append(
+                {
+                    "round": pick.get("round"),
+                    "overall": pick.get("overall"),
+                    "team_id": pick.get("team_id"),
+                    "player_id": pick.get("player_id"),
+                    "name": name or pick.get("player_id"),
+                    "position": prospect.get("primary_position") or "",
+                }
+            )
+        league = path_utils.get_request_league() or path_utils.get_active_league_id() or ""
+        for text in build_pick_messages(
+            league_id=league, year=year, picks=rows, draft_complete=draft_complete
+        ):
+            discord_notify.post(text, channel=discord_notify.DRAFT)
+    except Exception:  # pragma: no cover - a post must never break a pick
+        pass
+
+
 def _do_pick(
     year: int,
     state: Dict[str, Any],
     *,
     player_id: str,
     season_date: Optional[str] = None,
+    announce: bool = True,
 ) -> Dict[str, Any]:
-    """Record a pick + commit it to the team's roster. Mutates ``state``."""
+    """Record a pick + commit it to the team's roster. Mutates ``state``.
+
+    ``announce`` posts the pick to the draft channel; a caller making a run
+    of picks passes False and announces them together."""
 
     order: List[str] = list(state.get("order") or [])
     seq = state.get("pick_sequence")
@@ -907,7 +948,7 @@ def _do_pick(
     except Exception:  # pragma: no cover - defensive
         pass
 
-    return {
+    result = {
         "year": year,
         "round": rnd,
         "overall": overall,
@@ -916,6 +957,9 @@ def _do_pick(
         "commit": commit_summary,
         "draft_complete": _draft_complete(state, _load_settings_rounds()),
     }
+    if announce:
+        _announce_picks(year, [result], draft_complete=result["draft_complete"])
+    return result
 
 
 def _resume_regular_season_after_draft() -> None:
@@ -1227,11 +1271,18 @@ def auto_advance(
             stopped_reason = "pool_exhausted"
             break
         try:
-            result = _do_pick(year, state, player_id=str(best.get("player_id", "")))
+            result = _do_pick(
+                year, state, player_id=str(best.get("player_id", "")), announce=False
+            )
         except HTTPException:
             stopped_reason = "pick_failed"
             break
         picks_made.append(result)
+
+    # One post for the whole run (Discord rate-limits a webhook).
+    _announce_picks(
+        year, picks_made, draft_complete=_draft_complete(state, rounds_total)
+    )
 
     return {
         "year": year,
@@ -1291,10 +1342,12 @@ def admin_manual_pick(
     draft_state.append_result(
         year, team_id=team_id, player_id=player_id, rnd=rnd, overall=overall
     )
-    return {
+    result = {
         "year": year,
         "round": rnd,
         "overall": overall,
         "team_id": team_id,
         "player_id": player_id,
     }
+    _announce_picks(year, [result], draft_complete=_draft_complete(state, _load_settings_rounds()))
+    return result

@@ -3461,7 +3461,7 @@ def _announce_draft_clock(
             deadline=draft_clock.deadline(state, on_clock, settings.pick_clock_hours),
         )
         if text:
-            discord_notify.post(text)
+            discord_notify.post(text, channel=discord_notify.DRAFT)
     except Exception:  # pragma: no cover - a post must never break the tick
         pass
     return {"league": league, "announced": str(on_clock)}

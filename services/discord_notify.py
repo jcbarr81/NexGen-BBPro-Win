@@ -5,6 +5,9 @@ This is the server-side equivalent: it runs inside Cloud Run, where the
 git-ignored ``scripts/.discord_webhook`` file does not exist, so the webhook
 comes from the ``NEXGEN_DISCORD_WEBHOOK_URL`` environment variable only.
 
+Amateur draft posts (on the clock, picks) go to their own channel when
+``NEXGEN_DISCORD_DRAFT_WEBHOOK_URL`` is set (8.6.6), else to the main one.
+
 Posting must never affect the thing being reported on. Every entry point here
 swallows its own failures: a Discord outage, a revoked webhook or a network
 blip must not fail a simulation that has already been persisted.
@@ -19,6 +22,11 @@ import urllib.request
 from typing import Optional
 
 WEBHOOK_ENV = "NEXGEN_DISCORD_WEBHOOK_URL"
+DRAFT_WEBHOOK_ENV = "NEXGEN_DISCORD_DRAFT_WEBHOOK_URL"
+
+# Channels a post can go to: the main league channel and the draft channel.
+GENERAL = "general"
+DRAFT = "draft"
 
 # Discord rejects anything longer; we truncate rather than lose the post.
 MAX_CONTENT = 1900
@@ -28,24 +36,31 @@ USER_AGENT = "NexGen-BBPro-Server/1.0"
 _TIMEOUT_SECONDS = 10
 
 
-def webhook_url() -> Optional[str]:
-    """The configured webhook, or ``None`` when Discord posting is off."""
+def webhook_url(channel: str = GENERAL) -> Optional[str]:
+    """The webhook for ``channel``, or ``None`` when Discord posting is off.
 
+    The draft channel falls back to the main webhook when it has none of its
+    own."""
+
+    if channel == DRAFT:
+        value = (os.environ.get(DRAFT_WEBHOOK_ENV) or "").strip()
+        if value:
+            return value
     value = (os.environ.get(WEBHOOK_ENV) or "").strip()
     return value or None
 
 
-def is_configured() -> bool:
-    return webhook_url() is not None
+def is_configured(channel: str = GENERAL) -> bool:
+    return webhook_url(channel) is not None
 
 
-def post(content: str, *, username: str = "NexGen BBPro") -> bool:
-    """Post *content*. Returns True when Discord accepted it.
+def post(content: str, *, username: str = "NexGen BBPro", channel: str = GENERAL) -> bool:
+    """Post *content* to ``channel``. Returns True when Discord accepted it.
 
     Never raises: callers are reporting on work that has already happened.
     """
 
-    url = webhook_url()
+    url = webhook_url(channel)
     if not url:
         return False
     text = (content or "").strip()
@@ -100,4 +115,12 @@ def _record(message: str) -> None:
         pass
 
 
-__all__ = ["WEBHOOK_ENV", "is_configured", "post", "webhook_url"]
+__all__ = [
+    "DRAFT",
+    "DRAFT_WEBHOOK_ENV",
+    "GENERAL",
+    "WEBHOOK_ENV",
+    "is_configured",
+    "post",
+    "webhook_url",
+]

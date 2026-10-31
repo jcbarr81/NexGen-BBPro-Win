@@ -1,4 +1,5 @@
-"""Tell a league's Discord channel that an owner is on the clock.
+"""Tell a league's Discord channel that an owner is on the clock, and who
+each club picked (8.6.6).
 
 An owner cannot act on a deadline he never saw. The draft page shows a
 countdown, but nobody sits on the draft page for a day, so the moment a human
@@ -12,7 +13,7 @@ tick that calls it, so the wording can be checked without a network call.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, List, Mapping, Optional, Sequence
 
 
 def _discord_time(when: datetime) -> str:
@@ -85,4 +86,55 @@ def build_on_the_clock_message(
     return "\n".join(lines)
 
 
-__all__ = ["build_on_the_clock_message", "league_display_name", "team_display_name"]
+def _pick_line(pick: Mapping[str, Any]) -> str:
+    name = str(pick.get("name") or pick.get("player_id") or "?").strip()
+    position = str(pick.get("position") or "").strip()
+    who = f"{name} ({position})" if position else name
+    return (
+        f"Round {int(pick.get('round', 1) or 1)}, pick {int(pick.get('overall', 0) or 0)}: "
+        f"{team_display_name(str(pick.get('team_id') or ''))} select {who}"
+    )
+
+
+def build_pick_messages(
+    *,
+    league_id: str,
+    year: int,
+    picks: Sequence[Mapping[str, Any]],
+    draft_complete: bool = False,
+    limit: int = 1900,
+) -> List[str]:
+    """The posts announcing ``picks`` (each ``{round, overall, team_id, name,
+    position}``), in order: one line per pick under one header, split into
+    as few posts as fit Discord's length limit. A run of CPU picks is one
+    post, not one per pick (Discord rate-limits a webhook). Empty when there
+    are no picks."""
+
+    if not picks:
+        return []
+    league = league_display_name(league_id)
+    header = (
+        f"🧢 **{league}**: {int(year)} draft pick"
+        if len(picks) == 1
+        else f"🧢 **{league}**: {int(year)} draft, {len(picks)} picks"
+    )
+    lines = [_pick_line(p) for p in picks]
+    if draft_complete:
+        lines.append(f"That completes the {int(year)} draft.")
+    posts: List[str] = []
+    current = header
+    for line in lines:
+        if len(current) + 1 + len(line) > limit:
+            posts.append(current)
+            current = f"🧢 **{league}**: {int(year)} draft (continued)"
+        current = f"{current}\n{line}"
+    posts.append(current)
+    return posts
+
+
+__all__ = [
+    "build_on_the_clock_message",
+    "build_pick_messages",
+    "league_display_name",
+    "team_display_name",
+]
