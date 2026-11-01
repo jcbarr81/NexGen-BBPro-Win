@@ -182,8 +182,10 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 "default_stop": False,
             },
             {
+                # 8.8.0 (services.fa_window_notices.owner_notifier): a free
+                # agent your club bid on signed with another club.
                 "id": "fa_signed_elsewhere",
-                "label": "Watched free agent signed elsewhere",
+                "label": "A free agent you bid on signed elsewhere",
                 "default_notify": True,
                 "default_stop": False,
             },
@@ -199,7 +201,7 @@ RULE_CATEGORIES: List[Dict[str, Any]] = [
                 # now outbid on someone. Never stops a sim (the window has
                 # no game days). Saved files without it get these defaults.
                 "id": "fa_bidding",
-                "label": "Free-agent bidding opened, or you were outbid",
+                "label": "Free-agent bidding: opened, outbid, signed, no deal",
                 "default_notify": True,
                 "default_stop": False,
             },

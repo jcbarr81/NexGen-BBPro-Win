@@ -202,9 +202,13 @@ def _open_leaders(players_by_id: Dict[str, Any], *, data_dir: Path) -> List[Dict
         if not isinstance(neg, dict) or neg.get("status") != "open":
             continue
         offers = neg.get("offers", []) or []
-        if not offers:
+        # 8.8.0: the offer he would sign now (one he would accept), not the
+        # biggest total on the table.
+        leader = fa_negotiations._winner(
+            offers, players_by_id.get(str(pid)), int(neg.get("rules", 1) or 1)
+        )
+        if leader is None:
             continue
-        leader = max(offers, key=fa_negotiations._offer_value)
         out.append(
             {
                 "player_id": pid,
@@ -340,6 +344,16 @@ def _announce_opened(state: Dict[str, Any], base: Path) -> None:
         pass
 
 
+def _owner_notifier(base: Path, players_by_id: Dict[str, Any]):
+    """Tells owners who bid how each negotiation ended (8.8.0), or None."""
+    try:
+        from services.fa_window_notices import owner_notifier
+
+        return owner_notifier(base, players_by_id)
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
 def _announce_day(
     state: Dict[str, Any], day: int, signed: List[Dict[str, Any]], base: Path
 ) -> None:
@@ -396,6 +410,7 @@ def advance_day(
         ai_level=_ai_level(data_dir=base),
         window_day=day,
         window_total=total,
+        notify_fn=_owner_notifier(base, players_by_id),
     )
 
     signed = [

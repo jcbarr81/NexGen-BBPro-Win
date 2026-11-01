@@ -488,9 +488,11 @@ def evaluate_fa_offer(
             payroll_impact = None
 
     phase_gate = _phase_gate_for_fa()
+    verdict = _offer_verdict(player, pid, rules, offered_years, offered_salary)
     if evaluation is None:
         # 8.6.0: his ask and the length he wants, never how he would answer
-        # a figure (his minimum is hidden, as in extension talks).
+        # a figure below the ask (his minimum is hidden, as in extension
+        # talks).
         from services.extension_talks import fa_terms
 
         terms = fa_terms(player, pid, years=offered_years)
@@ -499,6 +501,8 @@ def evaluate_fa_offer(
             "rules": rules,
             "ask_salary": int(terms["ask"]),
             "preferred_years": int(terms["preferred_years"]),
+            "verdict": verdict,
+            **_length_rule(player, int(terms["preferred_years"])),
             "competing_bids": competition,
             "payroll_impact": payroll_impact,
             "phase_gate": phase_gate,
@@ -506,6 +510,8 @@ def evaluate_fa_offer(
     return {
         "player_id": pid,
         "rules": rules,
+        "verdict": verdict,
+        **_length_rule(player, int(evaluation.fair_market_years)),
         "fair_market_salary": evaluation.fair_market_salary,
         "fair_market_years": evaluation.fair_market_years,
         "decision": evaluation.decision,
@@ -517,6 +523,43 @@ def evaluate_fa_offer(
         "payroll_impact": payroll_impact,
         "phase_gate": phase_gate,
     }
+
+
+_VERDICT_TEXT = {
+    "at_ask": "At or above his ask: he will take this offer.",
+    "below_ask": "Below his ask: it may not be enough.",
+    "too_long": "Too long: he will not sign for this many years at his age.",
+    "accepts": "He will take this offer.",
+    "wont_accept": "Below what he takes: he will not sign this.",
+}
+
+
+def _offer_verdict(
+    player: Any, player_id: str, rules: int, years: int, salary: int
+) -> Dict[str, str]:
+    """How the free agent answers these terms, as far as the owner may know
+    (8.8.0; ``services.fa_negotiations.shown_acceptance``): ``{code, text}``.
+    """
+
+    from services.fa_negotiations import shown_acceptance
+
+    shown = shown_acceptance(
+        {"years": years, "annual_salary": salary}, player, player_id, rules
+    )
+    code = str(shown.get("reason") or "")
+    return {"code": code, "text": _VERDICT_TEXT.get(code, "")}
+
+
+def _length_rule(player: Any, preferred_years: int) -> Dict[str, Any]:
+    """``{"age", "max_years"}``: a player 33 or older will not sign for more
+    than his preferred length plus one (both offer rules); ``max_years`` is
+    None for a younger player."""
+
+    from services.contract_negotiator import _age_of
+
+    age = _age_of(player)
+    max_years = preferred_years + 1 if age is not None and age >= 33 else None
+    return {"age": age, "max_years": max_years}
 
 
 def _signing_roster_warnings(
@@ -982,9 +1025,19 @@ def submit_fa_offer(
     except Exception:
         payroll_impact = None
 
+    decision: Optional[Dict[str, Any]] = None
+    try:
+        from services.fa_negotiations import decision_timing
+        from services.fa_window import load_window
+
+        decision = decision_timing(negotiation, load_window())
+    except Exception:
+        decision = None
+
     return {
         "player_id": pid,
         "negotiation": negotiation,
+        "decision": decision,
         "payroll_impact": payroll_impact,
     }
 
@@ -994,19 +1047,44 @@ def list_fa_negotiations(
     team_id: str = Query(default=""),
     identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
-    """The caller team's open + resolved FA negotiations, for the pending-offers UI."""
+    """The caller team's open + resolved FA negotiations, for the pending-offers UI.
+
+    Each open one carries where the club's offer stands and when the player
+    decides (8.8.0, ``services.fa_negotiations.team_standing`` /
+    ``decision_timing``), and every row the player's position (backlog #67).
+    A club's own bids: only its owner (or the commissioner) may read them.
+    """
     from services.fa_negotiations import list_team_negotiations
 
     team_id = str(team_id or identity.get("t") or "").strip()
-    negotiations = list_team_negotiations(team_id) if team_id else []
+    if not team_id:
+        return {"team_id": team_id, "negotiations": []}
+    require_team_owner(identity, team_id)
+    players_by_id = _players_by_id()
+    negotiations = list_team_negotiations(team_id, players_by_id=players_by_id)
     for neg in negotiations:
-        player = _find_player(str(neg.get("player_id") or ""))
+        pid = str(neg.get("player_id") or "")
+        player = players_by_id.get(pid)
         if player is not None:
             name = f"{getattr(player, 'first_name', '')} {getattr(player, 'last_name', '')}".strip()
-            neg["player_name"] = name or str(neg.get("player_id"))
+            neg["player_name"] = name or pid
+            is_pitcher = bool(getattr(player, "is_pitcher", False))
+            neg["primary_position"] = str(getattr(player, "primary_position", "") or "")
+            neg["is_pitcher"] = is_pitcher
+            neg["role"] = (get_role(player) if is_pitcher else "") or ""
         else:
-            neg["player_name"] = str(neg.get("player_id"))
+            neg["player_name"] = pid
     return {"team_id": team_id, "negotiations": negotiations}
+
+
+def _players_by_id() -> Dict[str, Any]:
+    try:
+        return {
+            str(getattr(p, "player_id", "")): p
+            for p in load_players_from_csv("data/players.csv")
+        }
+    except Exception:
+        return {}
 
 
 @router.delete("/free-agents/{player_id}/offer")

@@ -315,6 +315,12 @@ export interface FreeAgentOfferEvaluation {
   counter_years?: number | null;
   reason?: string;
   service_tier?: "pre_arb" | "arbitration" | "free_agent";
+  /** How he answers these terms, as far as you may know (8.8.0). */
+  verdict?: FaOfferVerdict;
+  /** His age, and the longest deal he signs (33 or older: his preferred
+   *  length plus one; null for a younger player). */
+  age?: number | null;
+  max_years?: number | null;
   competing_bids: CompetingBid[];
   /** Payroll/tax/solvency consequences of this offer for the caller's team.
    *  Null when the caller has no team or finance data is unavailable. */
@@ -1240,15 +1246,51 @@ export interface FaNegotiationResolution {
   early?: boolean;
 }
 
+/** Where your offer stands (8.8.0), by the rule the signing uses: the
+ *  biggest total among the offers he would accept. */
+export type FaStanding =
+  | "leading"
+  | "outbid"
+  | "below_ask"
+  | "too_long"
+  | "wont_accept";
+
+/** When he decides (8.8.0): at the end of window day ``day``; at the end of
+ *  today; on the next sim day (a window negotiation left open after the
+ *  window closed); or by a calendar date (a regular-season negotiation). */
+export type FaDecision =
+  | { kind: "window_day"; day: number; total: number }
+  | { kind: "today"; day: number; total: number }
+  | { kind: "next_sim_day" }
+  | { kind: "date"; date: string | null };
+
+export interface FaOfferVerdict {
+  code: "at_ask" | "below_ask" | "too_long" | "accepts" | "wont_accept" | "";
+  text: string;
+}
+
 export interface FaNegotiationSummary {
   player_id: string;
   player_name?: string;
+  /** Backlog #67. */
+  primary_position?: string;
+  is_pitcher?: boolean;
+  role?: string;
   status: "open" | "resolved";
   deadline_date: string;
   your_offer: FaOffer | null;
+  /** The offer that wins now, when known without giving his minimum away:
+   *  yours when you lead, the rival's when you are outbid, else null. */
   leading_offer: FaOffer | null;
   offer_count: number;
   resolution: FaNegotiationResolution | null;
+  /** Open negotiations with your offer (8.8.0). */
+  standing?: FaStanding | null;
+  /** The best offer from another club that he would accept. */
+  rival_offer?: FaOffer | null;
+  /** His ask for your offer's length (offer rules 2). */
+  ask?: number | null;
+  decision?: FaDecision;
 }
 
 export interface FaWindowSigned {
@@ -1412,6 +1454,7 @@ export interface SubmitFaOfferResponse {
     resolution: FaNegotiationResolution | null;
   };
   payroll_impact: PayrollOutlook | null;
+  decision?: FaDecision | null;
 }
 
 export type FinanceTodoSeverity = "info" | "warning" | "critical";

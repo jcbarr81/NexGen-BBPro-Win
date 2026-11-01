@@ -446,6 +446,19 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
   books"** panel: payroll before → after vs the luxury threshold, estimated
   tax, cash remaining after the signing bonus, and an Opening Day solvency
   flag.
+  - **How a player decides (8.8.0).** On his decision day he signs the biggest
+    total (salary × years + bonus) among the offers he would take; an offer at
+    or above his ask for that length is one he takes, below it may not be, and
+    a player 33 or older won't sign for more than a year past the length he
+    wants. The offer dialog says which of those your terms are.
+  - **Your negotiations** shows each bid's position, where it stands
+    (**Leading**, **Outbid**, **Below his ask**, **Too long**, **He won't
+    sign**), his ask for your length, the best other offer he'd take and the
+    day he decides. A CPU offer that takes the lead can't sign him the same
+    day (you get a day to answer), and CPU clubs don't bid on the day that
+    decides him. Owners who bid get a notification when he signs, with whom
+    and for what. **Still need** chips list the positions nobody on your
+    active roster plays (with your open bids there) and filter the list.
 - **Trades** — pending offers, history, and the composer. Both sides are
   searchable lists of the real rosters (position, name, overall stars, age,
   injury flag), with draft picks in a multi-select below — no player ids to look

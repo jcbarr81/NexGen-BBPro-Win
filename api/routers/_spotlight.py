@@ -195,23 +195,32 @@ def _open_window_item(
     total = win.get("total_days")
     leading: List[Dict[str, Any]] = []
     outbid: List[Dict[str, Any]] = []
+    below: List[Dict[str, Any]] = []
+    refused: List[Dict[str, Any]] = []
     try:
         negotiations = list_team_negotiations(team_id)
     except Exception:
         negotiations = []
-    tid = team_id.strip().upper()
     for neg in negotiations:
         mine = neg.get("your_offer")
         if neg.get("status") != "open" or not isinstance(mine, dict):
             continue
-        leader = neg.get("leading_offer") or {}
         pid = str(neg.get("player_id") or "")
         terms = f"{int(mine.get('years', 1) or 1)}y / {_money(mine.get('annual_salary'))}"
-        if str(leader.get("team_id") or "").strip().upper() == tid:
+        # 8.8.0: where the offer stands by the rule the signing uses (the
+        # best total he would accept), not the biggest total on the table.
+        standing = neg.get("standing")
+        if standing == "leading":
             leading.append(people.entry(pid, f"leading ({terms})"))
-        else:
-            top = f"{int(leader.get('years', 1) or 1)}y / {_money(leader.get('annual_salary'))}"
-            outbid.append(people.entry(pid, f"outbid: top offer {top}"))
+        elif standing == "outbid":
+            top = neg.get("leading_offer") or {}
+            top_terms = f"{int(top.get('years', 1) or 1)}y / {_money(top.get('annual_salary'))}"
+            outbid.append(people.entry(pid, f"outbid: top offer {top_terms}"))
+        elif standing == "below_ask":
+            below.append(people.entry(pid, f"below his ask ({terms})"))
+        elif standing in ("too_long", "wont_accept"):
+            why = "too long for his age" if standing == "too_long" else "below what he takes"
+            refused.append(people.entry(pid, f"won't sign: {why}"))
 
     try:
         schedule = _season()._fa_schedule_view(dict(win))
@@ -230,15 +239,21 @@ def _open_window_item(
     parts: List[str] = []
     if outbid:
         parts.append(f"Outbid on {len(outbid)}: {_names(outbid)}. Counter to stay in.")
+    if refused:
+        parts.append(f"He won't sign your offer for {len(refused)}: {_names(refused)}.")
+    if below:
+        parts.append(
+            f"Below his ask for {len(below)}: {_names(below)}. It may not be enough."
+        )
     if leading:
         parts.append(f"You lead for {len(leading)}: {_names(leading)}.")
-    if not outbid and not leading:
+    if not (outbid or leading or below or refused):
         parts.append("You have no live bid.")
     parts.append(when)
-    count = len(outbid) + len(leading)
+    count = len(outbid) + len(refused) + len(below) + len(leading)
     item: Dict[str, Any] = {
         "kind": "free_agency",
-        "severity": "action" if outbid or not leading else "info",
+        "severity": "action" if outbid or refused or not leading else "info",
         "title": (
             f"Free-agent bidding is open: day {day} of {total}"
             if day and total
@@ -247,7 +262,7 @@ def _open_window_item(
         "detail": " ".join(parts),
         "href": "/free-agency",
         "count": count,
-        "players": (outbid + leading)[:MAX_PLAYERS],
+        "players": (outbid + refused + below + leading)[:MAX_PLAYERS],
     }
     if deadline:
         item["deadline_utc"] = deadline

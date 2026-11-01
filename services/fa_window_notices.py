@@ -7,7 +7,10 @@ happen to open the Season page could miss days of bidding. This posts:
 * when the window opens: one league news item and a notification to each
   human-owned club;
 * each time a day advances: a short news line with the day's signings and a
-  notification to each owner who is now outbid on someone (by name).
+  notification to each owner who is now outbid on someone (by name);
+* (8.8.0) each time a negotiation an owner bid in ends: who signed him and
+  for what (``fa_signed_elsewhere``), "you signed X", "X took no deal", or
+  that the owner's own signing could not be completed (``fa_bidding``).
 
 Notifications go to the owner's Notifications page under the ``fa_bidding``
 rule (on by default; the owner can mute it). Only clubs a person owns hear
@@ -29,8 +32,16 @@ from typing import Any, Dict, List, Mapping, Optional
 _LOGGER = logging.getLogger(__name__)
 
 RULE_ID = "fa_bidding"
+SIGNED_ELSEWHERE_RULE_ID = "fa_signed_elsewhere"
 
-__all__ = ["RULE_ID", "window_opened", "day_advanced", "format_utc"]
+__all__ = [
+    "RULE_ID",
+    "SIGNED_ELSEWHERE_RULE_ID",
+    "window_opened",
+    "day_advanced",
+    "owner_notifier",
+    "format_utc",
+]
 
 
 def format_utc(value: Any) -> str:
@@ -79,16 +90,23 @@ def _news(base: Path, message: str) -> None:
         _LOGGER.exception("fa notices: could not post the news item")
 
 
-def _notify(team_id: str, title: str, message: str, payload: Dict[str, Any]) -> bool:
+def _notify(
+    team_id: str,
+    title: str,
+    message: str,
+    payload: Dict[str, Any],
+    *,
+    rule_id: str = RULE_ID,
+) -> bool:
     try:
         from services.notification_engine import NotificationEvent, append_history
         from services.notification_settings import load_notification_settings
 
-        rule = load_notification_settings(team_id).rule(RULE_ID)
+        rule = load_notification_settings(team_id).rule(rule_id)
         if not rule.enabled:
             return False
         event = NotificationEvent(
-            rule_id=RULE_ID,
+            rule_id=rule_id,
             severity="info",
             title=title,
             message=message,
@@ -172,7 +190,8 @@ def window_opened(state: Mapping[str, Any], *, data_dir: Path | str) -> Dict[str
 
 def _outbid_by_team(base: Path, owners: List[str]) -> Dict[str, List[str]]:
     """``{team: [player names]}``: open negotiations where the owner has an
-    offer and another club leads."""
+    offer and another club's offer, one the player would accept, beats it
+    (8.8.0: ``fa_negotiations.team_standing``, the rule the signing uses)."""
 
     from services import fa_negotiations
 
@@ -180,16 +199,20 @@ def _outbid_by_team(base: Path, owners: List[str]) -> Dict[str, List[str]]:
     owned = set(owners)
     out: Dict[str, List[str]] = {}
     negs = fa_negotiations.load_negotiations(data_dir=base)["negotiations"]
+    players = None
     for pid, neg in negs.items():
         if not isinstance(neg, dict) or neg.get("status") != "open":
             continue
-        offers = neg.get("offers", []) or []
-        if not offers:
-            continue
-        leader = str(max(offers, key=fa_negotiations._offer_value).get("team_id") or "")
-        for offer in offers:
+        for offer in neg.get("offers", []) or []:
             tid = str(offer.get("team_id") or "").strip().upper()
-            if tid in owned and not offer.get("is_cpu") and tid != leader.strip().upper():
+            if tid not in owned or offer.get("is_cpu"):
+                continue
+            if players is None:
+                players = fa_negotiations._players_by_id(base)
+            standing = fa_negotiations.team_standing(
+                neg, str(offer.get("team_id") or ""), players.get(str(pid))
+            ).get("standing")
+            if standing == "outbid":
                 out.setdefault(tid, []).append(names.get(str(pid), str(pid)))
     for tid in out:
         out[tid] = sorted(set(out[tid]))
@@ -277,3 +300,117 @@ def day_advanced(
     except Exception:
         _LOGGER.exception("fa notices: day-advance notices failed")
     return out
+
+
+def _money(value: Any) -> str:
+    try:
+        amount = int(value or 0)
+    except (TypeError, ValueError):
+        return "$0"
+    if amount >= 1_000_000:
+        return f"${amount / 1_000_000:.2f}M".replace(".00M", "M")
+    return f"${amount:,}"
+
+
+def _terms(offer: Mapping[str, Any]) -> str:
+    years = int(offer.get("years", 1) or 1)
+    text = f"{years} yr{'s' if years != 1 else ''} at {_money(offer.get('annual_salary'))}/yr"
+    if int(offer.get("signing_bonus", 0) or 0):
+        text += f" + {_money(offer.get('signing_bonus'))} bonus"
+    return text
+
+
+def owner_notifier(base: Path | str, players_by_id: Mapping[str, Any]):
+    """A ``notify_fn`` for ``fa_negotiations.process_negotiations`` (8.8.0):
+    each owner whose club bid hears how the negotiation ended.
+
+    * he signed elsewhere: every other owner who bid
+      (``fa_signed_elsewhere``), with the deal and, when that was why, that
+      the owner's own offer was one he would not take;
+    * he signed with you; he took no deal; your signing could not be
+      completed (``fa_bidding``).
+
+    None when run on a directory that is not the active league
+    (notifications are filed under it) or ownership cannot be read. The
+    function it returns never raises, so it cannot fail a window step.
+    """
+
+    base = Path(base)
+    if not _active_league(base):
+        return None
+    owners = _owners(base)
+    if not owners:
+        return None
+    owned = set(owners)
+
+    def _name(pid: str) -> str:
+        p = players_by_id.get(pid)
+        if p is None:
+            return pid
+        text = f"{getattr(p, 'first_name', '')} {getattr(p, 'last_name', '')}".strip()
+        return text or pid
+
+    def _owner_bids(event: Mapping[str, Any]) -> Dict[str, Mapping[str, Any]]:
+        out: Dict[str, Mapping[str, Any]] = {}
+        for offer in event.get("bids") or []:
+            tid = str(offer.get("team_id") or "").strip()
+            if tid.upper() in owned and not offer.get("is_cpu"):
+                out[tid] = offer
+        return out
+
+    def _notify_fn(event: Dict[str, Any]) -> None:
+        try:
+            from services import fa_negotiations
+
+            kind = event.get("type")
+            pid = str(event.get("player_id") or "")
+            name = _name(pid)
+            payload = {"player_id": pid, "player_name": name}
+            if kind == "fa_signed":
+                winner = str(event.get("signed_team") or "")
+                deal = _terms(event.get("offer") or {})
+                rules = int(event.get("rules", 1) or 1)
+                for tid, offer in _owner_bids(event).items():
+                    if tid == winner:
+                        _notify(tid, f"You signed {name}",
+                                f"{name} signed with you: {deal}.", payload)
+                        continue
+                    accepts = fa_negotiations._player_accepts(
+                        dict(offer), players_by_id.get(pid), rules)
+                    why = (
+                        "Theirs was the biggest total of the offers he would take."
+                        if accepts
+                        else f"He would not have taken your offer ({_terms(offer)}):"
+                        " below what he would accept, or longer than he would sign for."
+                    )
+                    _notify(
+                        tid,
+                        f"{name} signed with {winner}",
+                        f"{name} signed with {winner}: {deal}. {why}",
+                        {**payload, "signed_team": winner},
+                        rule_id=SIGNED_ELSEWHERE_RULE_ID,
+                    )
+            elif kind == "fa_no_deal":
+                for tid in _owner_bids(event):
+                    _notify(
+                        tid,
+                        f"{name} took no deal",
+                        f"{name} would not take any offer on the table, yours "
+                        "included, and stays a free agent.",
+                        payload,
+                    )
+            elif kind == "fa_sign_failed":
+                tid = str(event.get("team_id") or "")
+                if tid.upper() in owned:
+                    _notify(
+                        tid,
+                        f"Could not sign {name}",
+                        f"{name} chose your offer ({_terms(event.get('offer') or {})}), "
+                        "but the signing could not be completed (roster or payroll "
+                        "limits), so your offer was withdrawn.",
+                        payload,
+                    )
+        except Exception:
+            _LOGGER.exception("fa notices: could not tell owners about %s", event)
+
+    return _notify_fn

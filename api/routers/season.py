@@ -1755,12 +1755,19 @@ def _run_day_automations(
                     data_dir=data_dir,
                 )
 
+            try:
+                from services.fa_window_notices import owner_notifier
+
+                notify_fn = owner_notifier(data_dir, players_by_id)
+            except Exception:  # pragma: no cover - defensive
+                notify_fn = None
             res = fa_negotiations.process_negotiations(
                 played_date,
                 data_dir=data_dir,
                 sign_fn=_sign,
                 players_by_id=players_by_id,
                 teams=teams,
+                notify_fn=notify_fn,
             )
             summary["fa_negotiations"] = {
                 "cpu_offers": int(res.get("cpu_offers", 0) or 0),

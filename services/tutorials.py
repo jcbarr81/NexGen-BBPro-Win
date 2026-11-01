@@ -344,6 +344,12 @@ TUTORIALS: List[Tutorial] = [
                 "<p>With the finance model on, offseason free agency runs as a <b>multi-day auction</b> rather than first-come-first-served. Every free agent stays biddable for the whole window, CPU teams post and raise offers each day, and nobody signs until a bid has had a day of exposure — so you can always counter or pivot to someone else. The Season page shows which day you're on and who's still unsigned.</p>",
             ),
             TutorialStep(
+                "How do free agents decide?",
+                "<p>On his <b>decision day</b> a free agent signs the <b>biggest total</b> (salary × years + signing bonus) among the offers <b>he would take</b>. A bigger offer he won't take doesn't count, so a long deal at a low salary can lose to a shorter one that pays him what he wants. An offer <b>at or above his ask</b> (for that length) is sure to be one he takes; below it, it may not be. A player <b>33 or older</b> won't sign for more than a year past the length he wants.</p>"
+                "<p><b>Your negotiations</b> shows where each of your bids stands: <b>Leading</b> (he'd sign yours if he decided now), <b>Outbid</b> (another club's offer he'd take has a bigger total), <b>Below his ask</b> (may not be enough), or <b>Too long</b> / <b>He won't sign</b>. It also shows his ask for your length, the best other offer he'd take, the player's position, and the day he decides (an offer far above his value can sign him sooner). The offer dialog tells you the same before you send it.</p>"
+                "<p>You always get a <b>last look</b>: a CPU club that takes the lead can't sign him the same day, so you hear you're outbid and have a day to answer, and CPU clubs don't bid on the day that decides him. When he signs you get a notification: who signed him and for what, or that he signed with you. The <b>Still need</b> chips above the list show the positions nobody on your active roster plays, with your open bids there; click one to filter the list.</p>",
+            ),
+            TutorialStep(
                 "Bids are due by the deadline",
                 "<p>Your commissioner can put a clock on each day of the window — you'll see <b>Bids due</b> with a countdown, and the day can roll over on its own once it passes. Not bidding is a legitimate choice: the day simply advances, and nothing is bid on your behalf.</p>",
             ),

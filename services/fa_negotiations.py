@@ -264,13 +264,25 @@ def open_negotiation_player_ids(*, data_dir: Path | str | None = None) -> set[st
 
 
 def list_team_negotiations(
-    team_id: str, *, data_dir: Path | str | None = None
+    team_id: str,
+    *,
+    data_dir: Path | str | None = None,
+    players_by_id: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Negotiations this team is (or was) party to, newest first, with the
-    team's own offer and the current leading offer surfaced for the UI."""
+    """Negotiations this team is (or was) party to, with the team's own
+    offer, where it stands and when the player decides (8.8.0).
+
+    ``standing`` (:func:`team_standing`) is what decides a signing: the best
+    total among the offers the player would accept, so a bigger total he
+    would turn down no longer reads as leading. ``leading_offer`` is the
+    offer that would win right now when that is known without giving his
+    hidden minimum away (yours when you lead, the rival's when you are
+    outbid), else None."""
     tid = str(team_id or "").strip()
+    negotiations = load_negotiations(data_dir=data_dir)["negotiations"]
+    window = _window_state(data_dir)
     out: List[Dict[str, Any]] = []
-    for neg in load_negotiations(data_dir=data_dir)["negotiations"].values():
+    for neg in negotiations.values():
         if not isinstance(neg, dict):
             continue
         offers = neg.get("offers", []) or []
@@ -279,19 +291,174 @@ def list_team_negotiations(
         involved = mine is not None or str(resolution.get("signed_team")) == tid
         if not involved:
             continue
-        leader = max(offers, key=_offer_value) if offers else None
-        out.append(
-            {
-                "player_id": neg.get("player_id"),
-                "status": neg.get("status"),
-                "deadline_date": neg.get("deadline_date"),
-                "your_offer": mine,
-                "leading_offer": leader,
-                "offer_count": len(offers),
-                "resolution": neg.get("resolution"),
-            }
-        )
+        row: Dict[str, Any] = {
+            "player_id": neg.get("player_id"),
+            "status": neg.get("status"),
+            "deadline_date": neg.get("deadline_date"),
+            "your_offer": mine,
+            "leading_offer": None,
+            "offer_count": len(offers),
+            "resolution": neg.get("resolution"),
+        }
+        if neg.get("status") == "open" and mine is not None:
+            if players_by_id is None:
+                players_by_id = _players_by_id(data_dir)
+            player = players_by_id.get(str(neg.get("player_id") or ""))
+            row.update(team_standing(neg, tid, player))
+            row["decision"] = decision_timing(neg, window)
+        out.append(row)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Where an offer stands (8.8.0)
+# ---------------------------------------------------------------------------
+
+def _winner(offers: List[Dict[str, Any]], player: Any, rules: int) -> Optional[Dict[str, Any]]:
+    """The offer the player signs if he decides now: the biggest total among
+    those he would accept (ties: the earliest). The resolver and every page
+    use this one rule."""
+    acceptable = [o for o in offers if _player_accepts(o, player, rules)]
+    return max(acceptable, key=_offer_value) if acceptable else None
+
+
+def shown_acceptance(
+    offer: Dict[str, Any], player: Any, player_id: str, rules: int
+) -> Dict[str, Any]:
+    """Whether the player takes ``offer``, as far as its owner may know.
+
+    ``{"accepts": True | False | None, "reason", "ask"}``. Under rules 2 an
+    offer at or above his shown ask is accepted and one below it is unknown
+    (``None``): his minimum is hidden. A deal longer than a 33+ player will
+    sign is refused under either rules (the length he wants is shown).
+    Under rules 1 the answer is exact."""
+    years = max(1, int(offer.get("years", 1) or 1))
+    salary = max(0, int(offer.get("annual_salary", 0) or 0))
+    if player is None:
+        return {"accepts": None, "reason": "", "ask": None}
+    if int(rules or 1) >= 2:
+        try:
+            from services.extension_talks import fa_terms
+
+            terms = fa_terms(player, player_id, years=years)
+        except Exception:
+            return {"accepts": None, "reason": "", "ask": None}
+        ask = int(terms["ask"])
+        if terms["too_long"]:
+            return {"accepts": False, "reason": "too_long", "ask": ask}
+        if salary >= ask:
+            return {"accepts": True, "reason": "at_ask", "ask": ask}
+        return {"accepts": None, "reason": "below_ask", "ask": ask}
+    accepts = _player_accepts(offer, player, rules)
+    reason = "accepts" if accepts else "wont_accept"
+    if not accepts and _too_long_for(player, years):
+        reason = "too_long"
+    return {"accepts": accepts, "reason": reason, "ask": None}
+
+
+def _too_long_for(player: Any, years: int) -> bool:
+    """Longer than a 33+ player signs: his preferred length plus one (the
+    rule both offer rules apply)."""
+    try:
+        from services.contract_negotiator import fair_market_years
+        from services.extension_talks import _too_long
+
+        preferred = fair_market_years(player, service_time_days=_FA_SERVICE_DAYS)
+        return bool(_too_long(player, years, preferred))
+    except Exception:
+        return False
+
+
+def team_standing(
+    negotiation: Dict[str, Any], team_id: str, player: Any
+) -> Dict[str, Any]:
+    """Where ``team_id``'s offer stands in an open negotiation.
+
+    ``standing``: ``leading`` (he would sign it if he decided now),
+    ``outbid`` (an offer he would accept has a bigger total), ``below_ask``
+    (rules 2: below his ask and nothing he would accept beats it; may not be
+    enough), ``too_long`` (longer than a 33+ player signs) or
+    ``wont_accept`` (rules 1: below what he takes). ``rival_offer`` is the
+    best offer he would accept from another club; ``ask`` his ask for your
+    length (rules 2)."""
+    tid = str(team_id or "").strip()
+    offers = negotiation.get("offers", []) or []
+    mine = next((o for o in offers if str(o.get("team_id")) == tid), None)
+    if mine is None:
+        return {"standing": None, "rival_offer": None, "ask": None}
+    pid = str(negotiation.get("player_id") or "")
+    rules = int(negotiation.get("rules", 1) or 1)
+    rivals = [o for o in offers if o is not mine]
+    rival = _winner(rivals, player, rules)
+    shown = shown_acceptance(mine, player, pid, rules)
+    out: Dict[str, Any] = {"rival_offer": rival, "ask": shown["ask"]}
+    if shown["accepts"] is False:
+        out["standing"] = "too_long" if shown["reason"] == "too_long" else "wont_accept"
+        out["leading_offer"] = rival
+        return out
+    # Yours counted as acceptable: exact when it is, and when it is unknown
+    # a rival that wins against it wins either way.
+    pool = [o for o in offers if o is mine or _player_accepts(o, player, rules)]
+    best = max(pool, key=_offer_value)
+    if best is not None and best is not mine:
+        out["standing"] = "outbid"
+        out["leading_offer"] = best
+    elif shown["accepts"]:
+        out["standing"] = "leading"
+        out["leading_offer"] = mine
+    else:
+        out["standing"] = "below_ask"
+        out["leading_offer"] = None
+    return out
+
+
+def _window_state(data_dir: Path | str | None) -> Optional[Dict[str, Any]]:
+    try:
+        from services.fa_window import load_window
+
+        return load_window(data_dir=data_dir)
+    except Exception:
+        return None
+
+
+def decision_timing(
+    negotiation: Dict[str, Any], window: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """When the player decides, for the owner.
+
+    In the bidding window: ``{"kind": "window_day", "day": N, "total"}``, N
+    the window day at whose end he signs the best offer he would accept (his
+    patience day, counted from the day his negotiation opened; the last day
+    at the latest), or ``"kind": "today"`` once that day has come. A
+    negotiation opened in a window that has closed decides on the next sim
+    day (``"next_sim_day"``); one opened in the season by its deadline date
+    (``"date"``). A much bigger offer can sign him sooner in every case."""
+    opened_day = negotiation.get("opened_day")
+    open_window = bool(window and window.get("status") == "open")
+    if opened_day is None:
+        return {"kind": "date", "date": negotiation.get("deadline_date")}
+    if not open_window:
+        return {"kind": "next_sim_day"}
+    total = int(window.get("total_days", 14) or 14)
+    today = int(window.get("day", 1) or 1)
+    day = min(total, int(opened_day or 1) + _window_patience(
+        str(negotiation.get("player_id") or ""), total))
+    if today >= day:
+        return {"kind": "today", "day": today, "total": total}
+    return {"kind": "window_day", "day": day, "total": total}
+
+
+def _players_by_id(data_dir: Path | str | None) -> Dict[str, Any]:
+    try:
+        from utils.player_loader import load_players_from_csv
+
+        base = get_data_dir() if data_dir is None else Path(data_dir)
+        return {
+            str(getattr(p, "player_id", "")): p
+            for p in load_players_from_csv(str(base / "players.csv"))
+        }
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -455,39 +622,58 @@ def _resolve(
             return {"signed_team": None, "player_id": player_id, "pruned": True}
     offers = negotiation.get("offers", []) or []
     rules = int(negotiation.get("rules", 1) or 1)
-    acceptable = [o for o in offers if _player_accepts(o, player, rules)]
-    winner = max(acceptable, key=_offer_value) if acceptable else None
-
-    if winner is None:
-        negotiation["status"] = "resolved"
-        negotiation["resolution"] = {"outcome": "no_deal", "date": str(sim_date)}
-        if notify_fn:
-            notify_fn({"type": "fa_no_deal", "player_id": player_id})
-        return {"signed_team": None, "player_id": player_id}
-
-    team_id = str(winner.get("team_id"))
-    signed = True
-    if sign_fn is not None:
-        try:
-            signed = bool(
-                sign_fn(team_id=team_id, player_id=player_id, offer=winner, player=player)
-            )
-        except Exception:
-            signed = False
-    if not signed:
-        # Signing failed (e.g. roster full) — drop that offer and leave the
-        # window open for another day rather than losing the player silently.
-        # A CPU club that failed is shut out of this player for good, or its
+    # Every offer as it stood, for the owners' notices (8.8.0).
+    bids = [dict(o) for o in offers]
+    winner: Optional[Dict[str, Any]] = None
+    failed: List[Dict[str, Any]] = []
+    while True:
+        offers = negotiation.get("offers", []) or []
+        candidate = _winner(offers, player, rules)
+        if candidate is None:
+            break
+        team_id = str(candidate.get("team_id"))
+        signed = True
+        if sign_fn is not None:
+            try:
+                signed = bool(
+                    sign_fn(team_id=team_id, player_id=player_id, offer=candidate,
+                            player=player)
+                )
+            except Exception:
+                signed = False
+        if signed:
+            winner = candidate
+            break
+        # Signing failed (e.g. roster full): drop that offer and try the
+        # next best he would accept. Until 8.8.0 the negotiation stayed open
+        # instead, so a failure on the window's last day left the player
+        # unsigned with offers on the table (alpha-test 2027: 16 players). A
+        # CPU club that failed is shut out of this player for good, or its
         # daily re-bid would win (and fail) every day from now on.
+        failed.append(candidate)
         negotiation["offers"] = [
             o for o in offers if str(o.get("team_id")) != team_id
         ]
-        if winner.get("is_cpu"):
+        if candidate.get("is_cpu"):
             excluded = negotiation.setdefault("excluded_teams", [])
             if team_id not in excluded:
                 excluded.append(team_id)
-        return {"signed_team": None, "player_id": player_id, "sign_failed": True}
+        elif notify_fn:
+            notify_fn({"type": "fa_sign_failed", "player_id": player_id,
+                       "team_id": team_id, "offer": dict(candidate)})
 
+    if winner is None:
+        if failed and not forced:
+            # Nobody left he would sign with today; the clubs still bidding
+            # get the rest of the negotiation to raise.
+            return {"signed_team": None, "player_id": player_id, "sign_failed": True}
+        negotiation["status"] = "resolved"
+        negotiation["resolution"] = {"outcome": "no_deal", "date": str(sim_date)}
+        if notify_fn:
+            notify_fn({"type": "fa_no_deal", "player_id": player_id, "bids": bids})
+        return {"signed_team": None, "player_id": player_id}
+
+    team_id = str(winner.get("team_id"))
     negotiation["status"] = "resolved"
     negotiation["resolution"] = {
         "outcome": "signed",
@@ -500,13 +686,16 @@ def _resolve(
         "early": not forced,
     }
     if notify_fn:
-        losing = sorted({str(o.get("team_id")) for o in offers} - {team_id})
+        losing = sorted({str(o.get("team_id")) for o in bids} - {team_id})
         notify_fn(
             {
                 "type": "fa_signed",
                 "player_id": player_id,
                 "signed_team": team_id,
                 "losing_teams": losing,
+                "offer": dict(winner),
+                "bids": bids,
+                "rules": rules,
             }
         )
     return {
@@ -597,18 +786,7 @@ def process_negotiations(
             continue
         summary["processed"] += 1
         player = (players_by_id or {}).get(pid)
-
-        added = _cpu_bid_round(
-            neg, pid, player, teams, ai_level, sim_date,
-            data_dir=data_dir, players_by_id=players_by_id,
-        )
-        if added:
-            summary["cpu_offers"] += added
-            changed = True
-
-        offers = neg.get("offers", []) or []
-        if not offers:
-            continue
+        rules = int(neg.get("rules", 1) or 1)
 
         deadline = _parse_date(neg.get("deadline_date"))
         at_deadline_date = deadline is not None and today >= deadline
@@ -618,13 +796,44 @@ def process_negotiations(
         final_window_day = in_window and int(window_day) >= int(window_total)
         at_deadline = at_deadline_date or final_window_day
 
+        # 8.8.0, the last look: an owner who bid sees every offer he is up
+        # against before the player decides. CPU clubs do not bid in the pass
+        # that decides him for sure, and a CPU offer posted or raised in this
+        # pass cannot sign him in it (the owner hears he is outbid and has a
+        # day to answer).
+        before = list(neg.get("offers", []) or [])
+        owner_bid = any(not o.get("is_cpu") for o in before)
+        added = 0
+        if not (at_deadline and owner_bid):
+            added = _cpu_bid_round(
+                neg, pid, player, teams, ai_level, sim_date,
+                data_dir=data_dir, players_by_id=players_by_id,
+            )
+        if added:
+            summary["cpu_offers"] += added
+            changed = True
+
+        offers = neg.get("offers", []) or []
+        if not offers:
+            if at_deadline:
+                neg["status"] = "resolved"
+                neg["resolution"] = {"outcome": "no_deal", "date": str(sim_date)}
+                summary["no_deal"].append(pid)
+                changed = True
+            continue
+
         early = False
         if not at_deadline:
             # The best offer he would take (a longer, bigger-total offer
             # below his minimum must not hold an acceptable one up).
-            rules = int(neg.get("rules", 1) or 1)
-            acceptable = [o for o in offers if _player_accepts(o, player, rules)]
-            leader = max(acceptable, key=_offer_value) if acceptable else None
+            leader = _winner(offers, player, rules)
+            if (
+                owner_bid
+                and leader is not None
+                and not any(leader is o for o in before)
+            ):
+                summary.setdefault("last_look", []).append(pid)
+                continue
             fm = _fair_market_total(player)
             if leader is not None and fm > 0:
                 if in_window:

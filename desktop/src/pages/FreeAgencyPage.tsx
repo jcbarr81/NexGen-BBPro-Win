@@ -33,10 +33,12 @@ import {
   api,
   ApiError,
   type ExtensionEvaluation,
+  type FaNegotiationSummary,
   type FaOffer,
   type FreeAgentSignRejection,
   type RatingContextEntry,
 } from "@/lib/api";
+import { STANDING, decisionText } from "@/lib/fa-standing";
 import { OfferImpactPanel } from "@/components/OfferImpactPanel";
 import { toast } from "@/lib/toast-store";
 import { useAuthStore } from "@/lib/auth-store";
@@ -375,6 +377,14 @@ export function FreeAgencyPage() {
     >
       <QualifyingOffersCard teamId={teamId} />
       <YourNegotiationsCard teamId={teamId} />
+      <StillNeedChips
+        teamId={teamId}
+        negotiations={negsQ.data?.negotiations ?? []}
+        onPick={(nextFilter, nextPosition) => {
+          setFilter(nextFilter);
+          setPosition(nextPosition);
+        }}
+      />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-1 flex-wrap items-center gap-2">
           <div className="relative w-full max-w-xs">
@@ -648,8 +658,9 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
         <div>
           <CardTitle>Your negotiations</CardTitle>
           <CardDescription>
-            Open bids run to their deadline while CPU teams counter — the player
-            signs the best offer then.
+            Each player signs the biggest total (salary × years + bonus) among
+            the offers he would take, on his decision day. A bigger offer he
+            won't take doesn't lead.
           </CardDescription>
         </div>
         <Badge tone="amber">{open.length} open</Badge>
@@ -711,19 +722,33 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
           })()}
         {open.map((n) => {
           const mine = n.your_offer;
-          const leader = n.leading_offer;
-          const youLead = !!leader && leader.team_id === teamId;
+          const standing = n.standing ? STANDING[n.standing] : null;
+          const rival = n.rival_offer ?? null;
+          const position = negotiationPosition(n);
           return (
             <div
               key={n.player_id}
               className="rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2"
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-2 font-semibold">
                   {n.player_name ?? n.player_id}
+                  {position && (
+                    <Badge tone="neutral" className="text-[10px]">
+                      {position}
+                    </Badge>
+                  )}
+                  {standing && (
+                    <Badge tone={standing.tone} title={standing.hint}>
+                      {standing.label}
+                    </Badge>
+                  )}
                 </span>
-                <span className="text-xs text-muted">
-                  decides {n.deadline_date}
+                <span
+                  className="text-xs text-muted"
+                  title="An offer far above his value can sign him sooner."
+                >
+                  {decisionText(n.decision, n.deadline_date)}
                 </span>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
@@ -736,26 +761,27 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
                     </span>
                   </span>
                 )}
-                {leader && (
-                  <span className={youLead ? "text-success" : "text-danger"}>
-                    Leading: {leader.team_id} $
-                    {leader.annual_salary.toLocaleString()}/yr × {leader.years} ={" "}
-                    {_faTotal(leader)}
-                    {youLead ? " (you)" : ""}
+                {mine && n.ask != null && (
+                  <span className="text-muted">
+                    His ask for {mine.years} yr{mine.years === 1 ? "" : "s"}:{" "}
+                    <span className="tabular-nums">${n.ask.toLocaleString()}/yr</span>
+                  </span>
+                )}
+                {rival && (
+                  <span
+                    className={n.standing === "outbid" ? "text-danger" : "text-muted"}
+                  >
+                    Best other offer he'd take: {rival.team_id} $
+                    {rival.annual_salary.toLocaleString()}/yr × {rival.years} ={" "}
+                    {_faTotal(rival)}
                   </span>
                 )}
                 <span className="text-muted">{n.offer_count} offer(s)</span>
-                {/* Players sign the biggest TOTAL guaranteed deal — so a longer
-                    contract can lead even at a lower annual salary. */}
-                {leader &&
-                  mine &&
-                  !youLead &&
-                  mine.annual_salary > leader.annual_salary && (
-                    <span className="basis-full text-[11px] text-muted">
-                      They lead on total money (more years) — add years or raise
-                      your total to pass them.
-                    </span>
-                  )}
+                {standing && n.standing !== "leading" && (
+                  <span className="basis-full text-[11px] text-muted">
+                    {standing.hint}
+                  </span>
+                )}
                 {mine && (
                   <button
                     type="button"
@@ -799,6 +825,129 @@ function YourNegotiationsCard({ teamId }: { teamId: string | null }) {
         })}
       </CardContent>
     </Card>
+  );
+}
+
+/** "SS", or a pitcher's SP / RP (backlog #67). */
+function negotiationPosition(n: FaNegotiationSummary): string {
+  if (n.is_pitcher) return n.role || "P";
+  return n.primary_position ?? "";
+}
+
+/** What you still need, from the roster-holes check (backlog #67): the
+ *  positions nobody on your active roster plays, a short pitching staff or
+ *  bench, with how many open bids you already have there. A chip filters
+ *  the list below. */
+function StillNeedChips({
+  teamId,
+  negotiations,
+  onPick,
+}: {
+  teamId: string | null;
+  negotiations: FaNegotiationSummary[];
+  onPick: (filter: Filter, position: string) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["team-roster-shortfall", teamId],
+    queryFn: () => api.teamRosterShortfall(teamId as string),
+    enabled: !!teamId,
+  });
+  const data = q.data;
+  if (!data) return null;
+  const open = negotiations.filter((n) => n.status === "open" && n.your_offer);
+  const bidsAt = (match: (n: FaNegotiationSummary) => boolean) =>
+    open.filter(match).length;
+  const chips: Array<{ key: string; label: string; title: string; bids: number; pick: () => void }> = [];
+  for (const pos of data.missing_positions) {
+    chips.push({
+      key: pos,
+      label: pos,
+      title: `Nobody on your active roster plays ${pos}. Shows free agents whose main position is ${pos}.`,
+      bids: bidsAt((n) => !n.is_pitcher && n.primary_position === pos),
+      pick: () => onPick("all", pos),
+    });
+  }
+  if (data.open_spots > 0 && data.pitchers < data.pitcher_cap) {
+    chips.push({
+      key: "pitchers",
+      label: `Pitchers ${data.pitchers}/${data.pitcher_cap}`,
+      title: "Room for more pitchers on your active roster. Shows pitchers.",
+      bids: bidsAt((n) => !!n.is_pitcher),
+      pick: () => onPick("pitchers", ""),
+    });
+  }
+  if (data.position_players_short > 0) {
+    chips.push({
+      key: "hitters",
+      label: `Position players: ${data.position_players_short} short`,
+      title: `Your active roster needs at least ${data.min_position_players} position players. Shows hitters.`,
+      bids: bidsAt((n) => !n.is_pitcher),
+      pick: () => onPick("hitters", ""),
+    });
+  }
+  if (chips.length === 0 && data.open_spots === 0) return null;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+      <span className="font-semibold uppercase tracking-wider text-muted">Still need</span>
+      {chips.map((c) => (
+        <button
+          key={c.key}
+          type="button"
+          onClick={c.pick}
+          title={c.title}
+          className="rounded-full border border-amber/50 bg-amber/10 px-2.5 py-0.5 font-semibold text-amber-text hover:bg-amber/20"
+        >
+          {c.label}
+          {c.bids > 0 && (
+            <span className="ml-1 font-normal text-muted">
+              · {c.bids} bid{c.bids === 1 ? "" : "s"}
+            </span>
+          )}
+        </button>
+      ))}
+      {chips.length === 0 && <span className="text-muted">No position holes.</span>}
+      {data.open_spots > 0 && (
+        <span className="text-muted">
+          {data.open_spots} active spot{data.open_spots === 1 ? "" : "s"} open (ACT{" "}
+          {data.active}/{data.active_cap})
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** How he answers the terms typed (8.8.0), and the length rule for a
+ *  player 33 or older. */
+function OfferVerdict({
+  verdict,
+  age,
+  maxYears,
+}: {
+  verdict?: { code: string; text: string };
+  age: number | null;
+  maxYears: number | null;
+}) {
+  if (!verdict?.text && maxYears == null) return null;
+  const good = verdict?.code === "at_ask" || verdict?.code === "accepts";
+  const bad = verdict?.code === "too_long" || verdict?.code === "wont_accept";
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2 text-xs",
+        good
+          ? "border-success/40 bg-success/10 text-success"
+          : bad
+            ? "border-danger/40 bg-danger/10 text-danger"
+            : "border-warning/40 bg-warning/10 text-warning",
+      )}
+    >
+      {verdict?.text && <div className="font-semibold">{verdict.text}</div>}
+      {maxYears != null && (
+        <div className="mt-0.5 text-muted">
+          At {age ?? "33+"}, he signs for {maxYears} year{maxYears === 1 ? "" : "s"} at most.
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -894,10 +1043,10 @@ function SignDialog({
       const name = player
         ? `${player.first_name} ${player.last_name}`.trim() || player.player_id
         : "Player";
-      const deadline = data.negotiation?.deadline_date;
+      const when = decisionText(data.decision, data.negotiation?.deadline_date);
       toast.success(`Offer submitted to ${name}`, {
-        description: deadline
-          ? `They decide by ${deadline}. CPU teams may counter — track it under Your negotiations.`
+        description: when
+          ? `${when}. CPU clubs may counter; track it under Your negotiations.`
           : "Track it under Your negotiations.",
       });
       onClose();
@@ -944,8 +1093,8 @@ function SignDialog({
           </DialogTitle>
           <DialogDescription>
             {previewQ.data?.ask_salary != null
-              ? "Make an offer. His ask is above what he'll really take; he signs with the best acceptable offer on his own day or at the deadline."
-              : "Make an offer. The player evaluates it against market value and competing bids before deciding."}
+              ? "Make an offer. An offer at his ask is sure to be accepted; one below it may not be. On his decision day he signs the biggest total (salary × years + bonus) among the offers he would take."
+              : "Make an offer. On his decision day he signs the biggest total (salary × years + bonus) among the offers he would take."}
           </DialogDescription>
         </DialogHeader>
 
@@ -1029,6 +1178,14 @@ function SignDialog({
                 </div>
               )}
             </div>
+          )}
+
+          {previewQ.data && !previewQ.data.phase_gate && (
+            <OfferVerdict
+              verdict={previewQ.data.verdict}
+              age={previewQ.data.age ?? null}
+              maxYears={previewQ.data.max_years ?? null}
+            />
           )}
 
           {/* What this offer does to OUR books: payroll move, tax, cash,

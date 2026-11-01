@@ -1531,6 +1531,11 @@ already counted. It now uses the rollover's own rule
 
 ## 65. Free agency: owners lose players they appear to be leading (owner feedback, 2026-10-30)
 
+**SHIPPED 8.8.0** (all six plan steps, plus the 16 stuck negotiations: a
+failed signing now goes on to the next offer he would take, and a
+negotiation left with no offers closes at its deadline). The finding and
+plan are kept below.
+
 alpha-test owners (El_Jayel, 2026-10-26 and 10-30): "I had 6 offers that I
 was leading on ... now 5 of them signed elsewhere without any chance to
 counter"; "Sometimes I'm outbid and I can still counter. Sometimes the player
@@ -1604,6 +1609,8 @@ old vs new asks first, and land it before alpha-test's next window. 8.6.2
 already moves pitchers to the shared overall from the next window.
 
 ## 67. Show positions on your free-agent bids, and what you still need (owner request, 2026-10-26)
+
+**SHIPPED 8.8.0.**
 
 "Can we get the position of the players we submitted bids to. I can't remember
 what positions I still need to bid on." Today the Your negotiations card

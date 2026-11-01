@@ -41,6 +41,7 @@ import {
   type Team,
   type TeamSnapshot,
 } from "@/lib/api";
+import { STANDING, decisionText } from "@/lib/fa-standing";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/cn";
 import { AppShell } from "@/components/layout/AppShell";
@@ -1189,7 +1190,8 @@ function MyFaOffersCard({ teamId }: { teamId: string | undefined }) {
         <div>
           <CardTitle>Your free-agent offers</CardTitle>
           <CardDescription>
-            Open bids you&apos;ve submitted — they resolve at each deadline.
+            Open bids you&apos;ve submitted, where each stands and when the
+            player decides.
           </CardDescription>
         </div>
         <Link
@@ -1202,24 +1204,35 @@ function MyFaOffersCard({ teamId }: { teamId: string | undefined }) {
       <CardContent className="space-y-1.5">
         {open.map((n) => {
           const mine = n.your_offer;
-          const leader = n.leading_offer;
-          const youLead = !!leader && leader.team_id === teamId;
+          const standing = n.standing ? STANDING[n.standing] : null;
+          const position = n.is_pitcher ? n.role || "P" : n.primary_position;
           return (
             <div
               key={n.player_id}
               className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs"
             >
-              <span className="font-medium">{n.player_name ?? n.player_id}</span>
+              <span className="flex items-center gap-1.5 font-medium">
+                {n.player_name ?? n.player_id}
+                {position && (
+                  <Badge tone="neutral" className="text-[10px]">
+                    {position}
+                  </Badge>
+                )}
+              </span>
               <span className="flex items-center gap-2">
                 {mine && (
                   <span className="tabular-nums text-muted">
                     ${mine.annual_salary.toLocaleString()}/yr ×{mine.years}
                   </span>
                 )}
-                <Badge tone={youLead ? "success" : "danger"}>
-                  {youLead ? "leading" : "outbid"}
-                </Badge>
-                <span className="text-muted">decides {n.deadline_date}</span>
+                {standing && (
+                  <Badge tone={standing.tone} title={standing.hint}>
+                    {standing.label}
+                  </Badge>
+                )}
+                <span className="text-muted">
+                  {decisionText(n.decision, n.deadline_date)}
+                </span>
               </span>
             </div>
           );
