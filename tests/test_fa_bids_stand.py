@@ -376,15 +376,50 @@ def test_owners_who_bid_hear_who_signed_him(league, monkeypatch):
     assert _history("BAL")[0]["title"] == "Could not sign Ann Able"
 
 
-def test_a_lost_bid_he_would_not_take_says_so(league, monkeypatch):
+def test_a_lost_notice_never_says_whether_he_would_have_taken_yours(league, monkeypatch):
+    """That would give his hidden minimum away (the review of 8.8.0)."""
+
     from services.fa_window_notices import owner_notifier
 
     _rules_1_minimum(monkeypatch, 5_000_000)
     notify = owner_notifier(league, {"P1": PLAYER})
     bids = [_offer("BAL", 4, 4_000_000), _offer("CHA", 2, 6_000_000, cpu=True)]
     notify({"type": "fa_signed", "player_id": "P1", "signed_team": "CHA",
-            "offer": bids[1], "bids": bids, "rules": 1})
-    assert "He would not have taken your offer" in _history("BAL")[0]["message"]
+            "offer": bids[1], "bids": bids})
+    message = _history("BAL")[0]["message"]
+    assert "would not have taken" not in message
+    assert "Your offer was 4 yrs at $4M/yr." in message
+
+
+def test_an_owner_whose_signing_failed_is_not_told_another_club_won(league):
+    from services.fa_window_notices import owner_notifier
+
+    notify = owner_notifier(league, {"P1": PLAYER})
+    bids = [_offer("BAL", 4, 6_000_000), _offer("NYY", 2, 5_000_000)]
+    notify({"type": "fa_sign_failed", "player_id": "P1", "team_id": "BAL", "offer": bids[0]})
+    notify({"type": "fa_signed", "player_id": "P1", "signed_team": "NYY",
+            "offer": bids[1], "bids": bids, "failed_teams": ["BAL"]})
+    assert [e["title"] for e in _history("BAL")] == ["Could not sign P1"]
+    assert _history("NYY")[0]["title"] == "You signed P1"
+
+
+def test_before_his_deciding_pass_a_failed_signing_tries_no_other_offer(tmp_path, monkeypatch):
+    """The early-signing and last-look checks were made on that offer alone."""
+
+    monkeypatch.setattr(neg, "OFFER_RULES", 1)
+    _accept_all(monkeypatch)
+    monkeypatch.setattr("services.contract_negotiator.fair_market_salary", lambda p, **k: 1_000_000)
+    monkeypatch.setattr("services.contract_negotiator.fair_market_years", lambda p, **k: 2)
+    _bid(tmp_path, team="BOS", salary=4_400_000)  # well above his value: signs early
+    _bid(tmp_path, team="CHA", salary=1_000_000)
+    tried: list = []
+    neg.process_negotiations(
+        "2026-10-21", data_dir=tmp_path, players_by_id={"P1": PLAYER},
+        sign_fn=lambda **k: tried.append(k["team_id"]) or False,
+    )
+    assert tried == ["BOS"]
+    n = neg.get_negotiation("P1", data_dir=tmp_path)
+    assert n["status"] == "open" and [o["team_id"] for o in n["offers"]] == ["CHA"]
 
 
 def test_no_notifier_off_the_active_league(tmp_path):

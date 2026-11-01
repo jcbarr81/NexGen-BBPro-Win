@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 
+import { STANDING } from "@/lib/fa-standing";
 import { useAuthStore } from "@/lib/auth-store";
 
 import {
@@ -1375,16 +1376,22 @@ function FaBiddingWindowPanel({
   const closed = win.status === "closed";
   const latest = win.latest;
   const signedToday = latest?.signed ?? [];
-  const leaders = latest?.leaders ?? [];
-  // Players you're bidding on but no longer leading — you need to counter.
-  const counter = teamId
-    ? leaders.filter(
-        (l) => l.teams_offering.includes(teamId) && l.leader_team !== teamId,
-      )
-    : [];
-  const leading = teamId
-    ? leaders.filter((l) => l.leader_team === teamId)
-    : [];
+  // 8.8.0: your bids' standing by the rule the signing uses (the biggest
+  // total among the offers he would take), as on the Free Agency page. The
+  // window log's leaders are just the biggest totals on the table.
+  const negsQ = useQuery({
+    queryKey: ["fa-negotiations", teamId],
+    queryFn: () => api.listFaNegotiations(teamId ?? undefined),
+    enabled: !!teamId && !closed,
+  });
+  const mine = (negsQ.data?.negotiations ?? []).filter(
+    (n) => n.status === "open" && n.your_offer,
+  );
+  // Bids that won't sign him as they stand: answer them.
+  const counter = mine.filter(
+    (n) => n.standing === "outbid" || n.standing === "too_long" || n.standing === "wont_accept",
+  );
+  const leading = mine.filter((n) => n.standing === "leading");
 
   return (
     <div className="rounded-xl border border-amber/40 bg-amber/5 p-3">
@@ -1467,10 +1474,15 @@ function FaBiddingWindowPanel({
               </p>
             ) : (
               <ul className="mt-1 space-y-0.5 text-xs">
-                {counter.slice(0, 8).map((l) => (
-                  <li key={l.player_id}>
-                    <span className="font-medium">{l.player_name}</span> — leader{" "}
-                    {l.leader_team} at {_faMoney(l.leader_salary)}/yr
+                {counter.slice(0, 8).map((n) => (
+                  <li key={n.player_id}>
+                    <span className="font-medium">{n.player_name ?? n.player_id}</span>
+                    {" — "}
+                    {n.standing === "outbid" && n.leading_offer
+                      ? `outbid by ${n.leading_offer.team_id} at ${_faMoney(n.leading_offer.annual_salary)}/yr × ${n.leading_offer.years}`
+                      : n.standing
+                        ? STANDING[n.standing].label.toLowerCase()
+                        : ""}
                   </li>
                 ))}
                 {counter.length > 8 && (

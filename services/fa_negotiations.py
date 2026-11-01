@@ -335,7 +335,8 @@ def shown_acceptance(
     years = max(1, int(offer.get("years", 1) or 1))
     salary = max(0, int(offer.get("annual_salary", 0) or 0))
     if player is None:
-        return {"accepts": None, "reason": "", "ask": None}
+        # The resolver accepts any offer for a player it cannot find.
+        return {"accepts": True, "reason": "accepts", "ask": None}
     if int(rules or 1) >= 2:
         try:
             from services.extension_talks import fa_terms
@@ -661,6 +662,11 @@ def _resolve(
         elif notify_fn:
             notify_fn({"type": "fa_sign_failed", "player_id": player_id,
                        "team_id": team_id, "offer": dict(candidate)})
+        if not forced:
+            # Before his deciding pass only the offer that made him ready to
+            # sign may sign him (the early-signing and last-look checks were
+            # made on it); the rest wait for another day.
+            break
 
     if winner is None:
         if failed and not forced:
@@ -670,7 +676,8 @@ def _resolve(
         negotiation["status"] = "resolved"
         negotiation["resolution"] = {"outcome": "no_deal", "date": str(sim_date)}
         if notify_fn:
-            notify_fn({"type": "fa_no_deal", "player_id": player_id, "bids": bids})
+            notify_fn({"type": "fa_no_deal", "player_id": player_id, "bids": bids,
+                       "failed_teams": [str(o.get("team_id")) for o in failed]})
         return {"signed_team": None, "player_id": player_id}
 
     team_id = str(winner.get("team_id"))
@@ -695,7 +702,7 @@ def _resolve(
                 "losing_teams": losing,
                 "offer": dict(winner),
                 "bids": bids,
-                "rules": rules,
+                "failed_teams": [str(o.get("team_id")) for o in failed],
             }
         )
     return {

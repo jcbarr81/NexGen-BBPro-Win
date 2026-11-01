@@ -351,17 +351,17 @@ def owner_notifier(base: Path | str, players_by_id: Mapping[str, Any]):
         return text or pid
 
     def _owner_bids(event: Mapping[str, Any]) -> Dict[str, Mapping[str, Any]]:
+        # Owners whose own signing failed were told so (fa_sign_failed).
+        failed = {str(t) for t in event.get("failed_teams") or []}
         out: Dict[str, Mapping[str, Any]] = {}
         for offer in event.get("bids") or []:
             tid = str(offer.get("team_id") or "").strip()
-            if tid.upper() in owned and not offer.get("is_cpu"):
+            if tid.upper() in owned and not offer.get("is_cpu") and tid not in failed:
                 out[tid] = offer
         return out
 
     def _notify_fn(event: Dict[str, Any]) -> None:
         try:
-            from services import fa_negotiations
-
             kind = event.get("type")
             pid = str(event.get("player_id") or "")
             name = _name(pid)
@@ -369,24 +369,19 @@ def owner_notifier(base: Path | str, players_by_id: Mapping[str, Any]):
             if kind == "fa_signed":
                 winner = str(event.get("signed_team") or "")
                 deal = _terms(event.get("offer") or {})
-                rules = int(event.get("rules", 1) or 1)
                 for tid, offer in _owner_bids(event).items():
                     if tid == winner:
                         _notify(tid, f"You signed {name}",
                                 f"{name} signed with you: {deal}.", payload)
                         continue
-                    accepts = fa_negotiations._player_accepts(
-                        dict(offer), players_by_id.get(pid), rules)
-                    why = (
-                        "Theirs was the biggest total of the offers he would take."
-                        if accepts
-                        else f"He would not have taken your offer ({_terms(offer)}):"
-                        " below what he would accept, or longer than he would sign for."
-                    )
+                    # Not whether he would have taken yours: below his ask
+                    # that would give his hidden minimum away.
                     _notify(
                         tid,
                         f"{name} signed with {winner}",
-                        f"{name} signed with {winner}: {deal}. {why}",
+                        f"{name} signed with {winner}: {deal}. Your offer was "
+                        f"{_terms(offer)}. He signs the biggest total among the "
+                        "offers he would take.",
                         {**payload, "signed_team": winner},
                         rule_id=SIGNED_ELSEWHERE_RULE_ID,
                     )

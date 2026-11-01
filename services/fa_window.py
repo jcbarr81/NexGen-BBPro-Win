@@ -202,13 +202,13 @@ def _open_leaders(players_by_id: Dict[str, Any], *, data_dir: Path) -> List[Dict
         if not isinstance(neg, dict) or neg.get("status") != "open":
             continue
         offers = neg.get("offers", []) or []
-        # 8.8.0: the offer he would sign now (one he would accept), not the
-        # biggest total on the table.
-        leader = fa_negotiations._winner(
-            offers, players_by_id.get(str(pid)), int(neg.get("rules", 1) or 1)
-        )
-        if leader is None:
+        if not offers:
             continue
+        # The biggest total on the table, NOT whom he would sign: this log is
+        # served to every member, and which offers he would accept would
+        # give his hidden minimum away (8.8.0). An owner's own standing is
+        # fa_negotiations.team_standing (the Free Agency and Season pages).
+        leader = max(offers, key=fa_negotiations._offer_value)
         out.append(
             {
                 "player_id": pid,
