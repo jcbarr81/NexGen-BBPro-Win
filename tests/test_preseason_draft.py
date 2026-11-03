@@ -1031,3 +1031,20 @@ def test_a_draft_that_finished_before_the_setting_existed_holds_nothing(league):
     state.pop("completed_at")
     draft_state.save_state(2027, state)
     assert S._post_draft_hold_until() is None
+
+
+def test_the_season_waits_for_free_agency_to_settle(league, monkeypatch):
+    """8.9.1: leaving the offseason closes the bidding window; a window that
+    still has players to settle keeps the phase where it is."""
+    _archive_2026(league)
+    _offseason_2027(league, timing=ds.DRAFT_TIMING_PRESEASON)
+    closes = []
+    monkeypatch.setattr("services.fa_window.is_open", lambda **k: True)
+    monkeypatch.setattr("services.fa_window.close_window", lambda **k: closes.append(1))
+
+    with pytest.raises(HTTPException) as exc:
+        S.advance_phase(payload={}, identity=ADMIN)
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "fa_still_settling"
+    assert closes == [1]
+    assert SeasonManager().phase == SeasonPhase.OFFSEASON

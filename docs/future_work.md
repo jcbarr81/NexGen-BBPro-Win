@@ -1587,6 +1587,14 @@ a player 33+ refuses a deal longer than his preferred length + 1.
 closed (day 14 of 14, deadline 2026-11-02), e.g. COL's P7617, although the
 final day should force every player to sign or close. Check why they did not
 resolve and what settles them (the regular-season daily hook?).
+**Answered (8.8.0 / 8.9.1):** they were signings that failed on the last
+day (a full roster), which before 8.8.0 left the negotiation open; 8.8.0
+went live a day after that window closed. Those 16 settle on the first
+regular-season sim day (calendar deadline). Owner rule (2026-11-03): every
+negotiation settles inside the window, none carried over. 8.9.1: the
+window stays open on its last day until nothing is open (the only
+remaining cause was the deciding pass holding a player back while club
+ownership was unreadable), and leaving the offseason waits for it.
 
 ## 66. Bench players ask too much in free agency (owner feedback, 2026-10-30)
 

@@ -426,6 +426,14 @@ def advance_day(
 
     is_final = day >= total
     deferred = list(summary.get("deferred") or [])
+    # 8.9.1: every negotiation settles inside the window. The deciding pass
+    # signs or closes each one, except a player it had to hold back (club
+    # ownership unreadable). Until then the window stays open on its last
+    # day and the next advance runs that pass again; before 8.9.1 it closed
+    # and left them to sign in the regular season.
+    unsettled: List[str] = []
+    if is_final:
+        unsettled = sorted(fa_negotiations.open_negotiation_player_ids(data_dir=base))
     if not is_final:
         # The market moved today — CPU teams re-target whoever is still available
         # for tomorrow (new negotiations get a day of exposure before they can
@@ -439,19 +447,32 @@ def advance_day(
         "leaders": leaders,
         "message": (
             f"Day {day}: {len(signed)} signing{'s' if len(signed) != 1 else ''}."
-            + ("" if not is_final else " Window closed — remaining players took their best offer.")
+            + (
+                ""
+                if not is_final
+                else (
+                    f" {len(unsettled)} still to settle; the window stays open"
+                    " until every one has."
+                    if unsettled
+                    else " Window closed — remaining players took their best offer."
+                )
+            )
             + (
                 ""
                 if not deferred
-                else f" {len(deferred)} still open (team ownership couldn't be read);"
-                " they resolve on the next sim day."
+                else f" {len(deferred)} held back (team ownership couldn't be read)."
             )
         ),
     }
+    if unsettled:
+        log_entry["unsettled"] = unsettled
     state.setdefault("log", []).append(log_entry)
 
-    if is_final:
+    if is_final and not unsettled:
         state["status"] = "closed"
+        state.pop("settling", None)
+    elif is_final:
+        state["settling"] = len(unsettled)
     else:
         state["day"] = day + 1
         state["current_date"] = (start + timedelta(days=day)).isoformat()
@@ -565,6 +586,9 @@ def window_status(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
         "season_key": (state or {}).get("season_key"),
         "this_season": _this_season(state, base),
         "latest": log[-1] if log else None,
+        # 8.9.1: players the deciding pass still has to settle (the window
+        # stays open on its last day until it is 0).
+        "settling": int((state or {}).get("settling") or 0),
         "sweep_locked": unsigned_sweep_locked(data_dir=base),
         **_human_participation(base),
     }

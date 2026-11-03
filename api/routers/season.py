@@ -2199,14 +2199,32 @@ def advance_phase(
     # Leaving OFFSEASON: if the owner never played out the FA bidding window,
     # don't strand open negotiations into the new season — force it closed so
     # every remaining free agent takes their best standing offer first.
+    # 8.9.1: the new season does not start with a negotiation still open; if
+    # the deciding pass had to hold players back, the phase waits (``force``
+    # still gets past it).
     if manager.phase == SeasonPhase.OFFSEASON:
+        still_open = False
         try:
             from services.fa_window import close_window, is_open
 
             if is_open():
                 close_window()
+                still_open = is_open()
         except Exception:  # pragma: no cover - defensive
             pass
+        if still_open and not force:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "fa_still_settling",
+                    "message": (
+                        "Free agency hasn't finished: some players couldn't "
+                        "be settled yet (team ownership couldn't be read). "
+                        "Advance the free-agency window again, then try "
+                        "again."
+                    ),
+                },
+            )
 
     # Build + verify the playoff bracket BEFORE flipping into PLAYOFFS. The
     # old order flipped the phase first and built the bracket after in a

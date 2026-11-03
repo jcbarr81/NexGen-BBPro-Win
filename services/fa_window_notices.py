@@ -269,6 +269,15 @@ def day_advanced(
                 + (f" ({signings} at the close)" if early else "")
                 + "; the remaining players took their best offer."
             )
+        elif day >= total:
+            # 8.9.1: the deciding pass had to hold some players back; the
+            # window stays open until they settle.
+            left = int(state.get("settling") or 0)
+            news = (
+                f"Free agency day {day} of {total}: {signings}. Bidding stays "
+                f"open until the last {left} player{'s' if left != 1 else ''} "
+                "settle."
+            )
         else:
             news = (
                 f"Free agency day {day} of {total}: {signings}. "
@@ -276,7 +285,7 @@ def day_advanced(
             )
         _news(base, news)
         out["news"] = news
-        if closed:
+        if closed or day >= total:
             return out
         owners = _owners(base)
         if not owners:
