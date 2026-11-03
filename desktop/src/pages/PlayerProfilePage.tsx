@@ -1157,6 +1157,16 @@ function ContractCard({
                       </>
                     )}
                   </div>
+                  {previewQ.data.price_note && (
+                    <div
+                      className={cn(
+                        "mt-2 border-t border-border/60 pt-2",
+                        previewQ.data.price_note.pct > 0 ? "text-success" : "text-amber-text",
+                      )}
+                    >
+                      {previewQ.data.price_note.text}
+                    </div>
+                  )}
                   {previewQ.data.status === "shutdown" && (
                     <div className="mt-2 text-danger">
                       He has broken off talks for {previewQ.data.shutdown_left}{" "}

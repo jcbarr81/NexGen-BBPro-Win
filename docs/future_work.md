@@ -1590,6 +1590,21 @@ resolve and what settles them (the regular-season daily hook?).
 
 ## 66. Bench players ask too much in free agency (owner feedback, 2026-10-30)
 
+**SHIPPED 8.9.0.** The quality behind every price averages several ratings,
+so big leaguers sit in a narrow band (gen 6: mean ~52.3, sd ~2.5, best
+~58); the curve is now 48..62 (was 35..75), top $24M, convexity 1.8. On
+alpha-test a 45 OVR asks ~$1.1M (was ~$4.9M), a typical big leaguer ~$4M
+(was ~$7.6M), the best ~$15M (was ~$13M); a club at market ~$101M (was
+~$179M). Owner's addition (2026-11-03, "moderate"): the price also reads
+his record (`services/performance_value.py`): last three big-league
+seasons weighted 5/4/3, OPS+ / ERA+FIP as z-scores against that season's
+league, counted at up to half weight for a full-time regular (500 PA /
+150 IP), shown in the offer and extension dialogs. Follow-ups: stats-test
+pitchers score ~5 quality points above its hitters until its gen-6
+conversion (pre-existing); the finance-AI dollar bars (`high_cost_salary`
+12M, `fa_*_avoid_salary` 12-24M) were set for the old prices; check CPU
+spending after alpha-test's next window.
+
 "Even bench players with 45 OVR are asking for $5mil a season. That's a lot on
 a $120mil cap." The free-agent ask is the full open-market value
 (`contract_negotiator.asking_salary`; every window free agent priced as a

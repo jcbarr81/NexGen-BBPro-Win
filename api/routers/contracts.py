@@ -238,6 +238,8 @@ def evaluate_extension(
     # 8.5.0: the preview shows the player's ASK and his mood, never how he
     # would answer a given figure (that let an owner find his exact price
     # without risk). services.extension_talks has the negotiation.
+    from services.performance_value import price_note
+
     talks = talks_view(
         player,
         pid,
@@ -284,6 +286,8 @@ def evaluate_extension(
         "service_time_days": service_days,
         "eligibility": eligibility.to_dict(),
         "payroll_impact": payroll_impact,
+        # 8.9.0: how his record moves his price, in words.
+        "price_note": price_note(player),
         **talks,
     }
 

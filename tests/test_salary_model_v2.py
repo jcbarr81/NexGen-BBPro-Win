@@ -62,12 +62,13 @@ def test_market_value_monotonic_and_bounded():
 
 
 def test_market_value_is_convex_stars_break_away():
-    # Equal rating steps must produce ACCELERATING dollar steps.
-    v40 = estimate_market_value_for_player(_hitter(40))
-    v50 = estimate_market_value_for_player(_hitter(50))
-    v60 = estimate_market_value_for_player(_hitter(60))
-    v70 = estimate_market_value_for_player(_hitter(70))
-    assert (v70 - v60) > (v60 - v50) > (v50 - v40)
+    # Equal rating steps must produce ACCELERATING dollar steps, across the
+    # band big leaguers' quality really spans (8.9.0: ~49..58, curve 48..62).
+    v49 = estimate_market_value_for_player(_hitter(49))
+    v53 = estimate_market_value_for_player(_hitter(53))
+    v57 = estimate_market_value_for_player(_hitter(57))
+    v61 = estimate_market_value_for_player(_hitter(61))
+    assert (v61 - v57) > (v57 - v53) > (v53 - v49)
 
 
 def test_star_versus_scrub_has_a_real_gap():

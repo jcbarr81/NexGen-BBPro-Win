@@ -488,6 +488,9 @@ def evaluate_fa_offer(
             payroll_impact = None
 
     phase_gate = _phase_gate_for_fa()
+    # 8.9.0: how his record moves his price, in words.
+    from services.performance_value import price_note
+
     bidding = _bidding_window_open()
     verdict = (
         _BIDDING_VERDICT
@@ -522,6 +525,7 @@ def evaluate_fa_offer(
             "preferred_years": int(terms["preferred_years"]),
             "verdict": verdict,
             "bidding_window": bidding,
+            "price_note": price_note(player),
             **_length_rule(player, int(terms["preferred_years"])),
             "competing_bids": competition,
             "payroll_impact": payroll_impact,
@@ -532,6 +536,7 @@ def evaluate_fa_offer(
         "rules": rules,
         "verdict": verdict,
         "bidding_window": bidding,
+        "price_note": price_note(player),
         **_length_rule(player, int(evaluation.fair_market_years)),
         "fair_market_salary": evaluation.fair_market_salary,
         "fair_market_years": evaluation.fair_market_years,

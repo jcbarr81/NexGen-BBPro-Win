@@ -1163,6 +1163,16 @@ function SignDialog({
                   </span>
                 </div>
               )}
+              {previewQ.data.price_note && (
+                <div
+                  className={cn(
+                    "mt-2 border-t border-border/60 pt-2",
+                    previewQ.data.price_note.pct > 0 ? "text-success" : "text-amber-text",
+                  )}
+                >
+                  {previewQ.data.price_note.text}
+                </div>
+              )}
               {previewQ.data.competing_bids.length > 0 && (
                 <div className="mt-2 border-t border-border/60 pt-2">
                   <div className="font-semibold uppercase tracking-wider text-muted">

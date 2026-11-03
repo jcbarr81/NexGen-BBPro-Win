@@ -249,6 +249,15 @@ export interface ExtensionTalksPreview {
   service_time_days?: number;
   eligibility?: ExtensionEligibility;
   payroll_impact?: PayrollOutlook | null;
+  /** How his big-league record moves his price (8.9.0); null under 5%. */
+  price_note?: PriceNote | null;
+}
+
+/** "His record raises his price (about $1.1M on his ratings alone): 2026:
+ *  375 PA, .835 OPS (OPS+ 122)." (services/performance_value.price_note). */
+export interface PriceNote {
+  pct: number;
+  text: string;
 }
 
 /** The player's answer to an extension offer (services.extension_talks). */
@@ -319,6 +328,8 @@ export interface FreeAgentOfferEvaluation {
    *  bidding window only a note (code "bidding"), never an answer (8.8.1). */
   verdict?: FaOfferVerdict;
   bidding_window?: boolean;
+  /** How his big-league record moves his price (8.9.0); null under 5%. */
+  price_note?: PriceNote | null;
   /** His age, and the longest deal he signs (33 or older: his preferred
    *  length plus one; null for a younger player). */
   age?: number | null;

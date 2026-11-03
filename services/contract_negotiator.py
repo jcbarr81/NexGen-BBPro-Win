@@ -253,10 +253,12 @@ def _talent_score(player: object) -> float:
     was the one that set his price.
     """
 
-    from services.contracts_service import _player_quality_score
+    from services.contracts_service import priced_quality
 
     try:
-        quality = _player_quality_score(player)
+        # 8.9.0: the price's quality, record included, so price and length
+        # still agree.
+        quality = priced_quality(player)
     except Exception:  # pragma: no cover - defensive
         quality = None
     if quality is None:

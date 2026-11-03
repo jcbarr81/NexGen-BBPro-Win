@@ -446,6 +446,12 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
   books"** panel: payroll before → after vs the luxury threshold, estimated
   tax, cash remaining after the signing bonus, and an Opening Day solvency
   flag.
+  - **What he asks for (8.9.0).** His ratings and his big-league record
+    (last three seasons, the latest counting most: OPS+ for hitters, ERA
+    and FIP for pitchers, each against that season's league). For a
+    full-time regular the record counts as much as the ratings, less for a
+    part-timer, not at all without big-league time. The offer and
+    extension dialogs say when his record moves his price by 5% or more.
   - **How a player decides (8.8.0).** On his decision day he signs the biggest
     total (salary × years + bonus) among the offers he would take; an offer at
     or above his ask for that length is one he takes, below it may not be, and

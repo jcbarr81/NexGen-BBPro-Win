@@ -58,11 +58,20 @@ SALARY_MODEL_VERSION = 2
 # $20M+, and an elite talent approaches the market ceiling. This is the FULL
 # free-agent (open-market) value; the service-time tier below discounts it for
 # cost-controlled (pre-arb / arbitration) players.
+#
+# 8.9.0 (backlog #66, owner feedback "even bench players with 45 OVR are
+# asking for $5mil"): re-anchored on the quality big leaguers really have.
+# Quality averages several ratings, so it sits in a narrow band (big
+# leaguers on generation 6: mean ~52.3, sd ~2.5, best ~58), not 20..80: the
+# old 35..75 curve put bench players well up it (OVR 45 asked ~$4.9M) and
+# no one near its top (best ~$13M); a club of average regulars cost ~$179M
+# against the $120M threshold. Now a 45 OVR asks ~$1.1M, a typical big
+# leaguer (OVR ~61) ~$4M, the best ~$15M, and an average club ~$101M.
 MARKET_MIN_SALARY = 800_000          # replacement-level open-market value
-MARKET_MAX_SALARY = 40_000_000       # elite open-market value
-QUALITY_FLOOR = 35.0                 # at/below -> market minimum
-QUALITY_CEIL = 75.0                  # at/above -> market maximum
-QUALITY_CONVEXITY = 2.2              # >1 makes the low/mid cheap, the top expensive
+MARKET_MAX_SALARY = 24_000_000       # value at QUALITY_CEIL
+QUALITY_FLOOR = 48.0                 # at/below -> market minimum (~OVR 42)
+QUALITY_CEIL = 62.0                  # at/above -> market maximum (above the best)
+QUALITY_CONVEXITY = 1.8              # >1 makes the low/mid cheap, the top expensive
 
 # Service-time tiers (fractions of open-market value).
 ARB_SERVICE_DAYS = 3 * 172           # 3 accrued seasons -> arbitration eligible
@@ -738,13 +747,30 @@ def _player_quality_score(player: object | None) -> float | None:
     return sum(value * weight for value, weight in present) / total_weight
 
 
-def estimate_market_value_for_player(player: object | None) -> int:
-    """Open-market (full free-agent) annual value from ratings, via a convex
-    quality->salary curve. This is what a player commands on the open market;
-    cost-controlled players are discounted from it by _apply_service_time_tier.
-    """
+def priced_quality(player: object | None, *, use_stats: bool = True) -> float | None:
+    """The quality a player is priced on: his ratings
+    (:func:`_player_quality_score`) moved toward what his big-league record
+    is worth (8.9.0, :mod:`services.performance_value`). None without
+    usable ratings."""
 
     quality = _player_quality_score(player)
+    if quality is None or not use_stats:
+        return quality
+    from services.performance_value import price_quality
+
+    return price_quality(player, quality)
+
+
+def estimate_market_value_for_player(
+    player: object | None, *, use_stats: bool = True
+) -> int:
+    """Open-market (full free-agent) annual value from ratings and record
+    (:func:`priced_quality`), via a convex quality->salary curve. This is
+    what a player commands on the open market; cost-controlled players are
+    discounted from it by _apply_service_time_tier.
+    """
+
+    quality = priced_quality(player, use_stats=use_stats)
     if quality is None:
         return MARKET_MIN_SALARY
     span = max(1.0, QUALITY_CEIL - QUALITY_FLOOR)
