@@ -253,10 +253,11 @@ export interface ExtensionTalksPreview {
   price_note?: PriceNote | null;
 }
 
-/** "His record raises his price (about $1.1M on his ratings alone): 2026:
- *  375 PA, .835 OPS (OPS+ 122)." (services/performance_value.price_note). */
+/** "His record raises his price a lot: 2026: 375 PA, .835 OPS (OPS+ 122)."
+ *  (services/performance_value.price_note). Never a figure: it would give
+ *  his hidden minimum away. */
 export interface PriceNote {
-  pct: number;
+  direction: "up" | "down";
   text: string;
 }
 

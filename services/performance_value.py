@@ -52,7 +52,9 @@ NORM_MIN_OUTS = 150.0
 CURRENT = "current"
 
 _LOCK = threading.Lock()
-_NORMS: Optional[Tuple[Any, Dict[str, Dict[str, float]]]] = None
+# {(season-stats path, career path): (file token, norms)}: one entry per
+# league, so two leagues served by one process never evict each other.
+_NORMS: Dict[Tuple[str, str], Tuple[Any, Dict[str, Dict[str, float]]]] = {}
 
 
 def _num(value: Any) -> float:
@@ -145,15 +147,22 @@ def _ops_plus(line: Mapping[str, Any], norms: Mapping[str, float]) -> float:
     return 100.0 * (obp / norms["obp"] + slg / norms["slg"] - 1.0)
 
 
-def _payloads() -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
-    """(cache token, {pid: {season id: line}}, {pid: this season's line})."""
+def _token() -> Tuple[Any, Any]:
+    """The active league's stats files: ``((path, mtime, size), ...)`` for
+    this season's stats and the career ledger."""
 
     from utils import player_loader as pl
     from utils.path_utils import get_data_dir
 
-    stats_path = get_data_dir() / "season_stats.json"
-    career_path = pl.CAREER_DATA_DIR / "career_players.json"
-    token = (pl._cache_token(stats_path), pl._cache_token(career_path))
+    return (pl._cache_token(get_data_dir() / "season_stats.json"),
+            pl._cache_token(pl.CAREER_DATA_DIR / "career_players.json"))
+
+
+def _payloads() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """({pid: {season id: line}}, {pid: this season's line})."""
+
+    from utils import player_loader as pl
+
     stats = pl._stats_payload() or {}
     current = stats.get("players", {}) if isinstance(stats, dict) else {}
     career = pl._career_payload() or {}
@@ -162,21 +171,23 @@ def _payloads() -> Tuple[Any, Dict[str, Any], Dict[str, Any]]:
         for pid, entry in career.items()
         if isinstance(entry, dict) and isinstance(entry.get("seasons"), dict)
     }
-    return token, seasons, current if isinstance(current, dict) else {}
+    return seasons, current if isinstance(current, dict) else {}
 
 
 def _norms() -> Dict[str, Dict[str, float]]:
-    """``{season id or CURRENT: norms}`` for the active league, cached on
-    the stats files."""
+    """``{season id or CURRENT: norms}`` for the active league, cached per
+    league on its stats files (checked before anything is read)."""
 
-    global _NORMS
     try:
-        token, seasons, current = _payloads()
+        token = _token()
+        key = (str(token[0][0]), str(token[1][0]))
+        with _LOCK:
+            cached = _NORMS.get(key)
+            if cached is not None and cached[0] == token:
+                return cached[1]
+        seasons, current = _payloads()
     except Exception:
         return {}
-    with _LOCK:
-        if _NORMS is not None and _NORMS[0] == token:
-            return _NORMS[1]
     by_season: Dict[str, List[Mapping[str, Any]]] = {}
     for entry in seasons.values():
         for sid, line in entry.items():
@@ -190,7 +201,9 @@ def _norms() -> Dict[str, Dict[str, float]]:
         if norms is not None:
             out[sid] = norms
     with _LOCK:
-        _NORMS = (token, out)
+        if len(_NORMS) >= 16:
+            _NORMS.clear()
+        _NORMS[key] = (token, out)
     return out
 
 
@@ -201,24 +214,37 @@ def _year(season_id: str) -> Optional[int]:
         return None
 
 
+_SAME_LINE_KEYS = ("g", "pa", "outs", "h", "er", "bb", "so")
+
+
+def _same_line(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    return all(_num(a.get(k)) == _num(b.get(k)) for k in _SAME_LINE_KEYS)
+
+
 def _seasons(player: Any, pitcher: bool) -> List[Tuple[str, str, Mapping[str, Any]]]:
-    """His most recent big-league seasons, newest first: ``(norms key,
-    label, line)``, at most ``len(RECENCY)``."""
+    """His big-league seasons, newest first: ``(norms key, label, line)``.
+
+    This season is left out while it is the same line as his newest
+    archived season: the rollover archives a season before it resets this
+    season's stats, and in between the season would count twice."""
 
     keep = _is_pitching if pitcher else _is_batting
-    out: List[Tuple[str, str, Mapping[str, Any]]] = []
-    current = getattr(player, "season_stats", None)
-    if isinstance(current, dict) and keep(current):
-        out.append((CURRENT, "this season", current))
+    dated: List[Tuple[int, str, Mapping[str, Any]]] = []
     history = getattr(player, "career_history", None)
     if isinstance(history, dict):
         dated = sorted(
             ((y, sid, line) for sid, line in history.items()
              if isinstance(line, dict) and keep(line) and (y := _year(sid)) is not None),
+            key=lambda row: row[0],
             reverse=True,
         )
-        out.extend((sid, str(y), line) for y, sid, line in dated)
-    return out[: len(RECENCY)]
+    out: List[Tuple[str, str, Mapping[str, Any]]] = []
+    current = getattr(player, "season_stats", None)
+    if (isinstance(current, dict) and keep(current)
+            and not (dated and _same_line(current, dated[0][2]))):
+        out.append((CURRENT, "this season", current))
+    out.extend((sid, str(y), line) for y, sid, line in dated)
+    return out
 
 
 def _season_z(line: Mapping[str, Any], norms: Mapping[str, float], pitcher: bool) -> Optional[float]:
@@ -249,13 +275,18 @@ def record(player: Any) -> Optional[Dict[str, Any]]:
             return None
         weighted = total = playing = 0.0
         shown: List[Dict[str, Any]] = []
-        for (key, label, line), recency in zip(_seasons(player, pitcher), RECENCY):
+        for key, label, line in _seasons(player, pitcher):
+            if len(shown) == len(RECENCY):
+                break
             season_norms = norms.get(key)
             if season_norms is None:
                 continue
+            # A season the league can't yet measure (early in the year, too
+            # few regulars for a spread) is skipped without using a slot.
             z = _season_z(line, season_norms, pitcher)
             if z is None:
                 continue
+            recency = RECENCY[len(shown)]
             time = _num(line.get("outs")) if pitcher else _num(line.get("pa"))
             weighted += recency * time * z
             total += recency * time
@@ -287,10 +318,6 @@ def price_quality(player: Any, quality: float) -> float:
     return quality + STATS_WEIGHT * rec["share"] * (earned - quality)
 
 
-def _money(value: float) -> str:
-    return f"${value / 1_000_000:.1f}M"
-
-
 def _season_text(row: Mapping[str, Any]) -> str:
     if "era" in row:
         return f"{row['label']}: {row['ip']:g} IP, {row['era']:.2f} ERA"
@@ -299,9 +326,13 @@ def _season_text(row: Mapping[str, Any]) -> str:
 
 def price_note(player: Any) -> Optional[Dict[str, Any]]:
     """Why his record moves his price, for the offer dialogs:
-    ``{pct, text}`` ("His record raises his price (about $1.1M on his
-    ratings alone): 2026: 375 PA, .835 OPS (OPS+ 122)."), or None when it moves it under 5% (or not at
-    all: no record, or both prices at the minimum)."""
+    ``{direction, text}`` ("His record raises his price a lot: 2026: 375 PA,
+    .835 OPS (OPS+ 122)."), or None when it moves it under 5% (or not at
+    all: no record, or both prices at the minimum).
+
+    Direction and rough size only, never a figure: the ratings-only price
+    next to his ask would give his temperament, and so his hidden minimum,
+    away (``extension_talks.fa_terms``)."""
 
     try:
         from services.contracts_service import estimate_market_value_for_player
@@ -318,12 +349,10 @@ def price_note(player: Any) -> Optional[Dict[str, Any]]:
             return None
         seasons = "; ".join(_season_text(row) for row in rec["seasons"][:2])
         verb = "raises" if pct > 0 else "lowers"
-        # Dollars, not a percentage: from a low base a percentage balloons
-        # (+222% is $1.1M to $3.6M).
+        size = " a little" if abs(pct) < 15 else (" a lot" if abs(pct) >= 40 else "")
         return {
-            "pct": pct,
-            "text": f"His record {verb} his price (about {_money(ratings_only)} on his "
-                    f"ratings alone): {seasons}.",
+            "direction": "up" if pct > 0 else "down",
+            "text": f"His record {verb} his price{size}: {seasons}.",
         }
     except Exception:
         return None

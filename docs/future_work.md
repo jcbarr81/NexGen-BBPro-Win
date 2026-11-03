@@ -1604,6 +1604,9 @@ pitchers score ~5 quality points above its hitters until its gen-6
 conversion (pre-existing); the finance-AI dollar bars (`high_cost_salary`
 12M, `fa_*_avoid_salary` 12-24M) were set for the old prices; check CPU
 spending after alpha-test's next window.
+A season line holding both batting and pitching (a position player who
+pitched, a pitcher who batted: #54) is read as pitching and skews that
+season's norms; latent while every league uses the DH.
 
 "Even bench players with 45 OVR are asking for $5mil a season. That's a lot on
 a $120mil cap." The free-agent ask is the full open-market value

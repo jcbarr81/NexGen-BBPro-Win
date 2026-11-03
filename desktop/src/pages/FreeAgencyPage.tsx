@@ -1167,7 +1167,7 @@ function SignDialog({
                 <div
                   className={cn(
                     "mt-2 border-t border-border/60 pt-2",
-                    previewQ.data.price_note.pct > 0 ? "text-success" : "text-amber-text",
+                    previewQ.data.price_note.direction === "up" ? "text-success" : "text-amber-text",
                   )}
                 >
                   {previewQ.data.price_note.text}

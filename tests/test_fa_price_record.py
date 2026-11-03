@@ -55,8 +55,9 @@ def _league():
 @pytest.fixture(autouse=True)
 def league(monkeypatch):
     seasons = _league()
-    monkeypatch.setattr(pv, "_NORMS", None)
-    monkeypatch.setattr(pv, "_payloads", lambda: (("synthetic",), seasons, {}))
+    monkeypatch.setattr(pv, "_NORMS", {})
+    monkeypatch.setattr(pv, "_token", lambda: (("synthetic",), ("career",)))
+    monkeypatch.setattr(pv, "_payloads", lambda: (seasons, {}))
     # Hitters are priced on their weighted ratings in these tests.
     monkeypatch.setattr(cs, "_pitchers_priced_by_overall", lambda: False)
 
@@ -138,30 +139,69 @@ def test_recent_seasons_count_more_and_only_three_count():
 def test_this_season_counts_first_once_he_has_played():
     seasons = _league()
     current = {f"C{i}": _bat(300, 0.300 + i * 0.002, 0.380 + i * 0.0027) for i in range(30)}
-    pv._NORMS = None
-    pv._payloads = lambda: (("synthetic-current",), seasons, current)
-    try:
-        p = _hitter(53, history={"lg-2026": BAD}, current=_bat(300, 0.390, 0.540))
-        rows = pv.record(p)["seasons"]
-        assert rows[0]["label"] == "this season" and rows[1]["label"] == "2026"
-    finally:
-        pv._NORMS = None
+    pv._NORMS.clear()
+    pv._payloads = lambda: (seasons, current)
+    p = _hitter(53, history={"lg-2026": BAD}, current=_bat(300, 0.390, 0.540))
+    rows = pv.record(p)["seasons"]
+    assert rows[0]["label"] == "this season" and rows[1]["label"] == "2026"
+
+
+def test_a_season_too_early_to_measure_uses_no_slot(monkeypatch):
+    """Opening Day: this season has a line, but too few regulars for a
+    spread; it must not push his oldest season out or cut his weight."""
+    seasons = _league()
+    current = {f"C{i}": _bat(20, 0.33, 0.42) for i in range(30)}
+    monkeypatch.setattr(pv, "_payloads", lambda: (seasons, current))
+    pv._NORMS.clear()
+    history = {"lg-2024": GOOD, "lg-2025": GOOD, "lg-2026": GOOD}
+    p = _hitter(53, history=history, current=_bat(4, 0.5, 0.5))
+    rec = pv.record(p)
+    assert [s["label"] for s in rec["seasons"]] == ["2026", "2025", "2024"]
+    assert rec["share"] == 1.0
+
+
+def test_a_season_archived_but_not_yet_reset_counts_once(monkeypatch):
+    seasons = _league()
+    current = {f"C{i}": _bat(500, 0.300 + i * 0.002, 0.380 + i * 0.0027) for i in range(30)}
+    monkeypatch.setattr(pv, "_payloads", lambda: (seasons, current))
+    pv._NORMS.clear()
+    p = _hitter(53, history={"lg-2025": BAD, "lg-2026": GOOD}, current=dict(GOOD))
+    assert [s["label"] for s in pv.record(p)["seasons"]] == ["2026", "2025"]
+
+
+def test_two_leagues_keep_their_own_norms(monkeypatch):
+    calls = []
+    league = {"name": "A"}
+    monkeypatch.setattr(pv, "_token", lambda: ((league["name"],), ("c",)))
+
+    def payloads():
+        calls.append(league["name"])
+        return _league(), {}
+
+    monkeypatch.setattr(pv, "_payloads", payloads)
+    pv._NORMS.clear()
+    for name in ("A", "B", "A", "B"):
+        league["name"] = name
+        assert pv._norms()
+    assert calls == ["A", "B"]
 
 
 def test_the_offer_dialog_says_why():
     note = pv.price_note(_hitter(53, history={"lg-2026": GOOD}))
-    assert note["pct"] > 5
-    assert note["text"].startswith("His record raises his price (about $")
-    assert "on his ratings alone" in note["text"]
+    assert note["direction"] == "up"
+    assert note["text"].startswith("His record raises his price")
     assert "2026: 550 PA" in note["text"] and "OPS+" in note["text"]
+    # Never a dollar figure: next to his ask it would give his minimum away.
+    assert "$" not in note["text"] and set(note) == {"direction", "text"}
     low = pv.price_note(_hitter(53, history={"lg-2026": BAD}))
-    assert low["pct"] < -5 and "lowers" in low["text"]
+    assert low["direction"] == "down" and "lowers" in low["text"]
     assert pv.price_note(_hitter(53)) is None
 
 
 def test_no_stats_files_means_no_change(monkeypatch):
-    monkeypatch.setattr(pv, "_payloads", lambda: (("empty",), {}, {}))
-    monkeypatch.setattr(pv, "_NORMS", None)
+    monkeypatch.setattr(pv, "_token", lambda: (("empty",), ("career",)))
+    monkeypatch.setattr(pv, "_payloads", lambda: ({}, {}))
+    monkeypatch.setattr(pv, "_NORMS", {})
     p = _hitter(53, history={"lg-2026": GOOD})
     assert pv.record(p) is None
     assert cs.priced_quality(p) == 53
