@@ -10,6 +10,18 @@
   (per-file process isolation). A single `pytest` run over everything shows ~50
   cross-file *pollution* failures that are NOT real bugs — see
   `docs/CODEX_HANDOFF.md` §5. Every file passes on its own.
+- **Run it in parallel: `python scripts/run_tests_isolated.py -j 12`** (~3.5 min
+  instead of ~23). It snapshots the working tree (uncommitted and untracked
+  files included) into 12 temporary worktrees and removes them afterwards;
+  the clean worktrees also avoid the main checkout's stray-`data/leagues`
+  false failures. Known failures in every run: test_league_command_center,
+  test_openai_client, test_payroll_policy, test_phase5_path_isolation,
+  test_team_loader.
+- When to run the full suite: changes to shared code (engine, league file
+  load/save, pricing, rollover, anything many pages use) and every MINOR
+  release. A small contained change needs its area's test files, the
+  cross-cutting pins (`tests/test_rating_scale_display.py`,
+  `tests/test_team_scoped_write_ownership.py`) and the client `tsc` check.
 - Run with `PYTHONHASHSEED=0`; never run sims/tests against a real user league,
   and clean stray data with `git clean -fdq data/leagues` (not just `git checkout`).
 - Python environment: `.venv` (Python 3.11). It is the `python` on PATH in

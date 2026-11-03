@@ -154,7 +154,8 @@ breaks later monkeypatches). Consequences:
 ### The green gate
 
 ```
-python scripts/run_tests_isolated.py            # full gate (~7 min): 201/201 files green
+python scripts/run_tests_isolated.py            # full gate, one file at a time (~23 min)
+python scripts/run_tests_isolated.py -j 12      # full gate, 12 at a time (~3.5 min)
 python scripts/run_tests_isolated.py -k trade    # only files whose name matches
 python scripts/run_tests_isolated.py --list      # list files, don't run
 ```
@@ -164,6 +165,14 @@ pytest subprocess** (fresh interpreter → zero cross-file leakage), restores
 `data/` between files, and exits non-zero on any failure. **This is the
 authoritative "is the suite green" check.** As of this handoff it is
 **201/201 green**.
+
+`-j N` (8.8.3) runs N files at a time. Tests write into the checkout's
+`data/`, so files can't share one checkout: the driver commits a snapshot
+of the working tree with a throwaway index (your index is untouched;
+untracked files included, stray `data/leagues` dirs left out), checks it out
+into N worktrees under the temp dir, gives each the next file (slowest
+first, from the times saved in `.git/nexgen-test-durations.json`), gives
+each its own pytest `--basetemp`, and removes the worktrees at the end.
 
 `tests/conftest.py` also does a cheap per-test env restore (`NEXGEN_*`,
 `PB_SIM_*`) and a session-end `data/` cleanup so a plain `pytest` run never
