@@ -37,8 +37,10 @@ def get_schema(
 @router.get("/settings/{team_id}")
 def get_settings(
     team_id: str,
-    _: Dict[str, Any] = Depends(require_bearer),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # 8.8.2 (#71): a club's own business, like its history below.
+    require_team_owner(identity, team_id)
     settings = load_notification_settings(team_id)
     return settings.to_dict()
 
@@ -67,8 +69,12 @@ def put_settings(
 def history(
     team_id: str,
     limit: int = 100,
-    _: Dict[str, Any] = Depends(require_bearer),
+    identity: Dict[str, Any] = Depends(require_bearer),
 ) -> Dict[str, Any]:
+    # 8.8.2 (#71): any signed-in member could read any club's history, and
+    # since 8.8.0 it names the free agents the club bid on and its terms.
+    # Its owner and the commissioner only.
+    require_team_owner(identity, team_id)
     capped = max(1, min(int(limit), 500))
     items = load_history(team_id, limit=capped)
     return {"team_id": team_id, "count": len(items), "events": items}

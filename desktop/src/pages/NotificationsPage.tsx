@@ -46,7 +46,13 @@ import {
 
 export function NotificationsPage() {
   const user = useAuthStore();
-  const teamId = user.selectedTeamId ?? user.teamId ?? null;
+  // 8.8.2 (#71): a club's notifications are its owner's (the server refuses
+  // anyone else), so an owner who browsed to another club still sees their
+  // own; the commissioner sees the club they picked.
+  const teamId =
+    user.role === "admin"
+      ? (user.selectedTeamId ?? user.teamId ?? null)
+      : (user.teamId ?? null);
   const accentColor = useActiveTeamColor(teamId ?? undefined);
 
   if (!teamId) {

@@ -1677,6 +1677,10 @@ Small to medium.
 
 ## 71. A club's notification history is readable by anyone in the league (found 2026-10-31)
 
+**SHIPPED 8.8.2.** Both read endpoints call `require_team_owner`; the
+Notifications page uses the owner's own club (the commissioner's pick for an
+admin).
+
 `GET /notifications/history/{team_id}` (`api/routers/notifications.py`) has
 no ownership check: any signed-in member can read another club's
 notifications. Found while reviewing draft boards (8.7.0), whose
