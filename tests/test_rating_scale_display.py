@@ -69,9 +69,9 @@ PINNED_SCALE_1 = {
 # tutorial's "Players who may retire" step; for 8.7.2: the Draft Board
 # guide's prospect-card sentence; for 8.7.3: the Depth chart step's
 # ratings-card sentence; for 8.8.0: the Free Agency tutorial's "How do
-# free agents decide?" step).
+# free agents decide?" step; for 8.8.1: that step's offer-dialog sentence).
 PINNED_SCALE_1_TUTORIALS = (
-    "c152a64b892f70b9d681a219b9a1a01ffcc0484f41b95f514572642169c2abb4"
+    "5b8ba30e3c53b37772948f22ff1ad21d8323cb6e5ffe93e7f7ef4f635f10d8ad"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

@@ -315,8 +315,10 @@ export interface FreeAgentOfferEvaluation {
   counter_years?: number | null;
   reason?: string;
   service_tier?: "pre_arb" | "arbitration" | "free_agent";
-  /** How he answers these terms, as far as you may know (8.8.0). */
+  /** How he answers these terms, as far as you may know (8.8.0); in the
+   *  bidding window only a note (code "bidding"), never an answer (8.8.1). */
   verdict?: FaOfferVerdict;
+  bidding_window?: boolean;
   /** His age, and the longest deal he signs (33 or older: his preferred
    *  length plus one; null for a younger player). */
   age?: number | null;
@@ -1265,7 +1267,7 @@ export type FaDecision =
   | { kind: "date"; date: string | null };
 
 export interface FaOfferVerdict {
-  code: "at_ask" | "below_ask" | "too_long" | "accepts" | "wont_accept" | "";
+  code: "at_ask" | "below_ask" | "too_long" | "accepts" | "wont_accept" | "bidding" | "";
   text: string;
 }
 

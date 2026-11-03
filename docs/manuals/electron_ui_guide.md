@@ -450,7 +450,9 @@ All owner finance actions are **owner-or-commissioner only** (enforced server-si
     total (salary × years + bonus) among the offers he would take; an offer at
     or above his ask for that length is one he takes, below it may not be, and
     a player 33 or older won't sign for more than a year past the length he
-    wants. The offer dialog says which of those your terms are.
+    wants. Outside the bidding window the offer dialog says which of those
+    your terms are; while bidding is open it doesn't (8.8.1): he answers on
+    his decision day, and other clubs can still beat an offer he'd take.
   - **Your negotiations** shows each bid's position, where it stands
     (**Leading**, **Outbid**, **Below his ask**, **Too long**, **He won't
     sign**), his ask for your length, the best other offer he'd take and the

@@ -488,7 +488,26 @@ def evaluate_fa_offer(
             payroll_impact = None
 
     phase_gate = _phase_gate_for_fa()
-    verdict = _offer_verdict(player, pid, rules, offered_years, offered_salary)
+    bidding = _bidding_window_open()
+    verdict = (
+        _BIDDING_VERDICT
+        if bidding
+        else _offer_verdict(player, pid, rules, offered_years, offered_salary)
+    )
+    if evaluation is not None and bidding:
+        # 8.8.1: in the bidding window an answer previewed as you type would
+        # read as "you'll get him" (other clubs can still beat it) and, on
+        # rules 1, lets an owner nudge the salary until it flips to find his
+        # exact price.
+        from dataclasses import replace
+
+        evaluation = replace(
+            evaluation,
+            decision=None,
+            counter_salary=None,
+            counter_years=None,
+            reason="",
+        )
     if evaluation is None:
         # 8.6.0: his ask and the length he wants, never how he would answer
         # a figure below the ask (his minimum is hidden, as in extension
@@ -502,6 +521,7 @@ def evaluate_fa_offer(
             "ask_salary": int(terms["ask"]),
             "preferred_years": int(terms["preferred_years"]),
             "verdict": verdict,
+            "bidding_window": bidding,
             **_length_rule(player, int(terms["preferred_years"])),
             "competing_bids": competition,
             "payroll_impact": payroll_impact,
@@ -511,6 +531,7 @@ def evaluate_fa_offer(
         "player_id": pid,
         "rules": rules,
         "verdict": verdict,
+        "bidding_window": bidding,
         **_length_rule(player, int(evaluation.fair_market_years)),
         "fair_market_salary": evaluation.fair_market_salary,
         "fair_market_years": evaluation.fair_market_years,
@@ -532,6 +553,28 @@ _VERDICT_TEXT = {
     "accepts": "He will take this offer.",
     "wont_accept": "Below what he takes: he will not sign this.",
 }
+
+
+# 8.8.1: what the dialog says instead while the bidding window is open.
+_BIDDING_VERDICT = {
+    "code": "bidding",
+    "text": (
+        "Bidding is open: he answers on his decision day, not now. He signs "
+        "the biggest total among the offers he would take, so other clubs "
+        "can still beat yours."
+    ),
+}
+
+
+def _bidding_window_open() -> bool:
+    """Is the offseason bidding window open in the active league?"""
+
+    try:
+        from services.fa_window import current_day
+
+        return current_day() is not None
+    except Exception:
+        return False
 
 
 def _offer_verdict(

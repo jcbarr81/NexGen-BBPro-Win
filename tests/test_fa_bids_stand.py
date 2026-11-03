@@ -474,3 +474,44 @@ def test_the_offer_dialog_says_how_he_answers(terms, monkeypatch):
     assert fa._length_rule(PLAYER, 2) == {"age": 34, "max_years": 3}
     monkeypatch.setattr("services.contract_negotiator._age_of", lambda p: 29)
     assert fa._length_rule(PLAYER, 2) == {"age": 29, "max_years": None}
+
+
+@pytest.mark.parametrize("bidding", [False, True])
+def test_the_offer_dialog_answers_only_outside_the_bidding_window(monkeypatch, bidding):
+    """8.8.1 (owner call): an answer previewed while bidding is open reads as
+    "you'll get him" when other clubs can still beat it, and on rules 1 lets
+    an owner nudge the salary until it flips to find his exact price."""
+    import api.routers.free_agency as fa
+    from services.contract_negotiator import ExtensionEvaluation
+
+    monkeypatch.setattr(fa, "_find_player", lambda pid: PLAYER)
+    monkeypatch.setattr(fa, "_refuse_if_owned", lambda *a: None)
+    monkeypatch.setattr(fa, "_offer_rules", lambda pid: 1)
+    monkeypatch.setattr(fa, "_competing_bids", lambda *a, **k: [])
+    monkeypatch.setattr(fa, "_phase_gate_for_fa", lambda: None)
+    monkeypatch.setattr(fa, "_length_rule", lambda p, y: {"age": 30, "max_years": None})
+    monkeypatch.setattr(fa, "_bidding_window_open", lambda: bidding)
+    monkeypatch.setattr(
+        fa, "evaluate_extension_offer",
+        lambda *a, **k: ExtensionEvaluation(
+            decision="countered", fair_market_salary=5_000_000, fair_market_years=3,
+            counter_salary=4_800_000, counter_years=3, reason="below market",
+            service_tier="free_agent",
+        ),
+    )
+    monkeypatch.setattr(
+        fa, "_offer_verdict", lambda *a: {"code": "wont_accept", "text": "no"}
+    )
+    out = fa.evaluate_fa_offer(
+        "P1", {"years": 3, "annual_salary": 4_000_000}, identity={"r": "admin", "t": ""}
+    )
+    assert out["bidding_window"] is bidding
+    assert out["fair_market_salary"] == 5_000_000
+    if bidding:
+        assert out["verdict"]["code"] == "bidding"
+        assert "other clubs can still beat" in out["verdict"]["text"]
+        assert out["decision"] is None and out["counter_salary"] is None
+        assert out["counter_years"] is None and out["reason"] == ""
+    else:
+        assert out["verdict"]["code"] == "wont_accept"
+        assert (out["decision"], out["counter_salary"]) == ("countered", 4_800_000)

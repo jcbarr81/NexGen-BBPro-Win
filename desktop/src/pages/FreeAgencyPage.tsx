@@ -930,6 +930,8 @@ function OfferVerdict({
   if (!verdict?.text && maxYears == null) return null;
   const good = verdict?.code === "at_ask" || verdict?.code === "accepts";
   const bad = verdict?.code === "too_long" || verdict?.code === "wont_accept";
+  // 8.8.1: in the bidding window there is no answer to preview, only a note.
+  const bidding = verdict?.code === "bidding";
   return (
     <div
       className={cn(
@@ -938,7 +940,9 @@ function OfferVerdict({
           ? "border-success/40 bg-success/10 text-success"
           : bad
             ? "border-danger/40 bg-danger/10 text-danger"
-            : "border-warning/40 bg-warning/10 text-warning",
+            : bidding
+              ? "border-border bg-surfaceAlt text-ink"
+              : "border-warning/40 bg-warning/10 text-warning",
       )}
     >
       {verdict?.text && <div className="font-semibold">{verdict.text}</div>}
@@ -1092,7 +1096,9 @@ function SignDialog({
             {player?.first_name ? `, ${player.first_name}` : ""}
           </DialogTitle>
           <DialogDescription>
-            {previewQ.data?.ask_salary != null
+            {previewQ.data?.ask_salary != null && previewQ.data.bidding_window
+              ? "Make an offer. He would take an offer at his ask, but that does not win him: on his decision day he signs the biggest total (salary × years + bonus) among the offers he would take."
+              : previewQ.data?.ask_salary != null
               ? "Make an offer. An offer at his ask is sure to be accepted; one below it may not be. On his decision day he signs the biggest total (salary × years + bonus) among the offers he would take."
               : "Make an offer. On his decision day he signs the biggest total (salary × years + bonus) among the offers he would take."}
           </DialogDescription>
