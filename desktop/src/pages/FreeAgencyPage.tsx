@@ -10,6 +10,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { ratingCatalog, ratingValue, useColumnChoice } from "@/lib/rating-columns";
+import { ColumnPicker } from "@/components/ColumnPicker";
 import {
   keepPreviousData,
   useMutation,
@@ -68,19 +70,12 @@ type SortKey = "name" | "pos" | "role" | "bats" | string;
 type SortDir = "asc" | "desc";
 type Filter = "all" | "hitters" | "pitchers";
 
-const HITTER_COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "ch", label: "CH" },
-  { key: "ph", label: "PH" },
-  { key: "sp", label: "SP" },
-  { key: "eye", label: "EYE" },
-  { key: "fa", label: "FA" },
-];
-const PITCHER_COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "fb", label: "FB" },
-  { key: "control", label: "CTRL" },
-  { key: "movement", label: "MOV" },
-  { key: "endurance", label: "END" },
-];
+// Rating columns: today's set by default; the Columns menu adds the rest,
+// every pitch included (#69, 8.10.0).
+const HITTER_DEFAULTS = ["ch", "ph", "sp", "eye", "fa"];
+const PITCHER_DEFAULTS = ["fb", "control", "movement", "endurance"];
+const HITTER_CATALOG = ratingCatalog("hitters", HITTER_DEFAULTS);
+const PITCHER_CATALOG = ratingCatalog("pitchers", PITCHER_DEFAULTS);
 
 /** Stats view (8.3.1): the most recent season's line (this season once
  *  played, else last season). Keys are the server's ``stats`` fields. */
@@ -97,6 +92,7 @@ const HITTER_STAT_COLUMNS: Array<{ key: string; label: string; fmt: StatFormat }
   { key: "bb_pct", label: "BB%", fmt: "pct" },
   { key: "k_pct", label: "K%", fmt: "pct" },
 ];
+const HITTER_STAT_DEFAULTS = HITTER_STAT_COLUMNS.map((c) => c.key);
 const PITCHER_STAT_COLUMNS: Array<{ key: string; label: string; fmt: StatFormat }> = [
   { key: "g", label: "G", fmt: "int" },
   { key: "gs", label: "GS", fmt: "int" },
@@ -110,6 +106,7 @@ const PITCHER_STAT_COLUMNS: Array<{ key: string; label: string; fmt: StatFormat 
   { key: "bb9", label: "BB/9", fmt: "rate" },
   { key: "hr9", label: "HR/9", fmt: "rate" },
 ];
+const PITCHER_STAT_DEFAULTS = PITCHER_STAT_COLUMNS.map((c) => c.key);
 
 function formatStat(value: number | undefined, fmt: StatFormat): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -358,8 +355,14 @@ export function FreeAgencyPage() {
     (filter === "all" &&
       filtered.length > 0 &&
       filtered.filter((p) => p.is_pitcher).length / filtered.length > 0.5);
-  const columns = pitcherHeavy ? PITCHER_COLUMNS : HITTER_COLUMNS;
-  const statColumns = pitcherHeavy ? PITCHER_STAT_COLUMNS : HITTER_STAT_COLUMNS;
+  const hitterRatings = useColumnChoice("fa:ratings:hitters", HITTER_CATALOG, HITTER_DEFAULTS);
+  const pitcherRatings = useColumnChoice("fa:ratings:pitchers", PITCHER_CATALOG, PITCHER_DEFAULTS);
+  const hitterStats = useColumnChoice("fa:stats:hitters", HITTER_STAT_COLUMNS, HITTER_STAT_DEFAULTS);
+  const pitcherStats = useColumnChoice("fa:stats:pitchers", PITCHER_STAT_COLUMNS, PITCHER_STAT_DEFAULTS);
+  const ratingChoice = pitcherHeavy ? pitcherRatings : hitterRatings;
+  const statChoice = pitcherHeavy ? pitcherStats : hitterStats;
+  const columns = ratingChoice.columns;
+  const statColumns = statChoice.columns;
   // Which season the Stats view shows: the latest any listed player has.
   const statSeasons = new Set(
     filtered.map((p) => p.stats?.season).filter((s): s is string => !!s),
@@ -470,9 +473,16 @@ export function FreeAgencyPage() {
                 </span>
               )}
             </CardTitle>
-            <Badge tone="amber">
-              <Users className="h-3 w-3" /> {filtered.length}
-            </Badge>
+            <div className="flex items-center gap-2">
+              {view === "ratings" ? (
+                <ColumnPicker choice={ratingChoice} />
+              ) : (
+                <ColumnPicker choice={statChoice} />
+              )}
+              <Badge tone="amber">
+                <Users className="h-3 w-3" /> {filtered.length}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -570,7 +580,7 @@ export function FreeAgencyPage() {
                         ? columns.map((col) => (
                             <td key={col.key} className="px-3 py-2 text-right tabular-nums">
                               <RatingCell
-                                value={fa.ratings[col.key]}
+                                value={ratingValue(fa.ratings, col.key)}
                                 context={
                                   positionContext
                                     ? fa.ratings_context?.[col.key]

@@ -115,7 +115,9 @@ def _refuse_if_owned(player_id: str, team_id: Optional[str] = None) -> None:
 # rating-scale: display keys; the summary shows the stored ratings
 _SUMMARY_RATING_KEYS = (
     "ch", "ph", "sp", "eye", "fa", "arm",
-    "fb", "control", "movement", "endurance",
+    "control", "movement", "endurance",
+    # Every pitch (#69, 8.10.0): the page's column picker can show them all.
+    "fb", "sl", "cu", "cb", "si", "scb", "kn",
 )
 
 

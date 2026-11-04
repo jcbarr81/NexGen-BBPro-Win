@@ -34,7 +34,12 @@ from ._rating_presentation import (
 router = APIRouter(prefix="/players", tags=["players"], dependencies=[CurrentIdentity])
 
 # rating-scale: display keys; the browser shows the stored ratings
-_HEADLINE_RATINGS = ("ch", "ph", "sp", "eye", "arm", "fa", "control", "movement", "endurance")
+_HEADLINE_RATINGS = (
+    "ch", "ph", "sp", "eye", "arm", "fa", "control", "movement", "endurance",
+    # Every pitch (#69, 8.10.0). The browser's FB column read "—" for every
+    # pitcher before: the key was never sent.
+    "fb", "sl", "cu", "cb", "si", "scb", "kn",
+)
 
 
 def _row_raw_int(row: dict, key: str) -> Any:

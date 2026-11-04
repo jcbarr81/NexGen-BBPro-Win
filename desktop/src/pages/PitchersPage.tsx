@@ -11,6 +11,8 @@
 import { useMemo, useState } from "react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { ratingCatalog, ratingValue, useColumnChoice } from "@/lib/rating-columns";
+import { ColumnPicker } from "@/components/ColumnPicker";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -61,19 +63,12 @@ const LEVEL_LABEL: Record<RosterLevel, string> = {
 // Pitcher stat columns — arm + endurance + control + movement, then pitch mix.
 // Mirrors the fields PyQt surfaced (AS/EN/CO in the label, plus the pitch
 // columns from pitchers_dialog.py). Sort by any column.
-const COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "arm", label: "AS" },
-  { key: "endurance", label: "EN" },
-  { key: "control", label: "CTRL" },
-  { key: "movement", label: "MOV" },
-  { key: "fb", label: "FB" },
-  { key: "sl", label: "SL" },
-  { key: "cu", label: "CU" },
-  { key: "cb", label: "CB" },
-  { key: "si", label: "SI" },
-  { key: "scb", label: "SCB" },
-  { key: "kn", label: "KN" },
+// The Columns menu chooses among them (#69, 8.10.0).
+const DEFAULTS = [
+  "arm", "endurance", "control", "movement",
+  "fb", "sl", "cu", "cb", "si", "scb", "kn",
 ];
+const CATALOG = ratingCatalog("pitchers", DEFAULTS);
 
 type SortKey = "name" | "age" | "role" | "overall" | string;
 type SortDir = "asc" | "desc";
@@ -290,6 +285,9 @@ function PitcherTable({ players }: { players: RosterPlayer[] }) {
     }
   }
 
+  const columnChoice = useColumnChoice("pitchers", CATALOG, DEFAULTS);
+  const COLUMNS = columnChoice.columns;
+
   if (players.length === 0) {
     return (
       <Card className="mt-4">
@@ -306,6 +304,7 @@ function PitcherTable({ players }: { players: RosterPlayer[] }) {
         <div>
           <CardTitle>{players.length} pitchers</CardTitle>
         </div>
+        <ColumnPicker choice={columnChoice} />
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">

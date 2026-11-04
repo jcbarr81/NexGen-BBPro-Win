@@ -170,6 +170,10 @@ TUTORIALS: List[Tutorial] = [
                 "<p>Open <b>My Team → Roster</b>. Players are grouped by level: Active (up to 26, at most 13 of them pitchers), AAA (15), Low (10), DL, IR. Each table shows position, role, and ratings. When your active roster is below the limit the page shows a <b>spot is open</b> badge; filling it is up to you. See the <b>26-Man Active Roster</b> tutorial for the full rules.</p>",
             ),
             TutorialStep(
+                "Choose your columns",
+                "<p>Click <b>Columns</b> above a player table to choose which ratings it shows: tick a column to add it, untick it to hide it. Pitchers can show every pitch (fastball, slider, changeup, curveball, sinker, screwball, knuckleball); a pitch he doesn't throw reads <b>—</b>. Hitters and pitchers keep separate choices, and each table remembers yours on this device. <b>Reset to default</b> brings back the standard columns. The same menu is on the Free Agency, Players, Position Players, Pitchers and Lineup pages.</p>",
+            ),
+            TutorialStep(
                 "Right-click context menu",
                 "<p><b>Right-click any player row</b> for a quick menu with Open profile, <b>Training focus…</b> (opens the per-player override dialog), Move to Active, Send to AAA, Send to Low-A, and Release / Cut. The three-dot button at the end of the row opens the same menu. To put someone on the injured list, use <b>Place on IL</b> on the Injury Center page — that starts the stint properly and promotes a replacement.</p>",
             ),
@@ -265,7 +269,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Pitching staff roles",
-                "<p>The <b>Pitching</b> tab has 11 required slots: <b>SP1–SP5</b>, <b>LR</b>, <b>MR1–MR3</b>, <b>SU</b>, <b>CL</b>, plus two optional middle-relief slots, <b>MR4</b> and <b>MR5</b>. Drag or use move buttons to reorder — the simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings. The badge reads <i>Filled 11/11 + 2 optional</i> once the 12th and 13th arms have their slots.</p><p>A full active roster carries up to 13 pitchers. Use <b>Add role</b> to put the 12th and 13th in MR4 and MR5. An arm left without a slot is an <b>unslotted reliever</b>: he still pitches out of the bullpen as an extra middle reliever, and the Pitching tab lists him under the staff. A label that is not a slot (an old plain <i>MR</i> row) or a slot listed twice only shows a warning; the staff still saves.</p>",
+                "<p>The <b>Pitching</b> tab has 11 required slots: <b>SP1–SP5</b>, <b>LR</b>, <b>MR1–MR3</b>, <b>SU</b>, <b>CL</b>, plus two optional middle-relief slots, <b>MR4</b> and <b>MR5</b>. Drag a pitcher by his <b>⋮⋮</b> handle onto another role, or drag one from the <b>Eligible pitchers</b> list below; dropping him on a filled role <b>swaps</b> the two. The pitcher dropdown swaps too: picking someone who already holds a role (marked <i>swap with SP2</i>, say) moves the two. Pitchers from outside the staff replace the role's holder, who becomes unslotted. The simulator schedules starts and calls relievers based on these roles. Low-rating warnings appear for starters or closers without the right ratings. The badge reads <i>Filled 11/11 + 2 optional</i> once the 12th and 13th arms have their slots.</p><p>A full active roster carries up to 13 pitchers. Use <b>Add role</b> to put the 12th and 13th in MR4 and MR5. An arm left without a slot is an <b>unslotted reliever</b>: he still pitches out of the bullpen as an extra middle reliever, and the Pitching tab lists him under the staff. A label that is not a slot (an old plain <i>MR</i> row) or a slot listed twice only shows a warning; the staff still saves.</p>",
             ),
             TutorialStep(
                 "Pitching staff Auto-fill",

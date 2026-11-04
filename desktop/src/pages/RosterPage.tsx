@@ -10,6 +10,13 @@
 import { useMemo, useState } from "react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import {
+  ratingCatalog,
+  ratingValue,
+  useColumnChoice,
+  type ColumnDef,
+} from "@/lib/rating-columns";
+import { ColumnPicker } from "@/components/ColumnPicker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -98,25 +105,13 @@ const LEVEL_LABEL: Record<RosterLevel, string> = {
   IR: "Injured Res.",
 };
 
-// The ratings we surface in the table header. Keep these consistent across
-// hitters/pitchers so sort + layout stay stable; pitcher-specific ratings
-// (FB, control, movement, endurance) show up as extra columns below.
-const HITTER_COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "ch", label: "CH" },
-  { key: "ph", label: "PH" },
-  { key: "sp", label: "SP" },
-  { key: "eye", label: "EYE" },
-  { key: "fa", label: "FA" },
-  { key: "arm", label: "ARM" },
-];
-const PITCHER_COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "fb", label: "FB" },
-  { key: "control", label: "CTRL" },
-  { key: "movement", label: "MOV" },
-  { key: "endurance", label: "END" },
-  { key: "arm", label: "ARM" },
-  { key: "fa", label: "FA" },
-];
+// The ratings in the table: a hitter set and a pitcher set (the one shown
+// follows the filter / the level's mix). Today's columns by default; the
+// Columns menu adds the rest, every pitch included (#69, 8.10.0).
+const HITTER_DEFAULTS = ["ch", "ph", "sp", "eye", "fa", "arm"];
+const PITCHER_DEFAULTS = ["fb", "control", "movement", "endurance", "arm", "fa"];
+const HITTER_CATALOG = ratingCatalog("hitters", HITTER_DEFAULTS);
+const PITCHER_CATALOG = ratingCatalog("pitchers", PITCHER_DEFAULTS);
 
 type SortKey = "name" | "pos" | "bats" | "role" | string;
 type SortDir = "asc" | "desc";
@@ -1028,7 +1023,10 @@ function RosterLevelTable({
     (filter === "all" &&
       players.length > 0 &&
       players.filter((p) => p.is_pitcher).length / players.length > 0.5);
-  const columns = pitcherHeavy ? PITCHER_COLUMNS : HITTER_COLUMNS;
+  const hitterChoice = useColumnChoice("roster:hitters", HITTER_CATALOG, HITTER_DEFAULTS);
+  const pitcherChoice = useColumnChoice("roster:pitchers", PITCHER_CATALOG, PITCHER_DEFAULTS);
+  const columnChoice = pitcherHeavy ? pitcherChoice : hitterChoice;
+  const columns = columnChoice.columns;
 
   const filtered = useMemo(() => {
     if (filter === "hitters") return players.filter((p) => !p.is_pitcher);
@@ -1097,7 +1095,10 @@ function RosterLevelTable({
             </button>
           ))}
         </div>
-        <div className="text-xs text-muted">{sorted.length} players</div>
+        <div className="flex items-center gap-3">
+          <ColumnPicker choice={columnChoice} />
+          <div className="text-xs text-muted">{sorted.length} players</div>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -1215,7 +1216,7 @@ function RosterRow({
   positionContext,
 }: {
   player: RosterPlayer;
-  columns: Array<{ key: string; label: string }>;
+  columns: ColumnDef[];
   level: RosterLevel;
   actions: RosterActions;
   positionContext: boolean;
@@ -1310,7 +1311,7 @@ function RosterRow({
       {columns.map((col) => (
         <td key={col.key} className="px-3 py-2 text-right tabular-nums">
           <RatingCell
-            value={player.ratings[col.key]}
+            value={ratingValue(player.ratings, col.key)}
             context={
               positionContext
                 ? player.ratings_context?.[col.key]

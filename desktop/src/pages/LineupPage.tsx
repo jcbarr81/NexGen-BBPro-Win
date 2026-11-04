@@ -5,14 +5,22 @@
  * pitching-staff role slots. Everything edits the same CSV files the
  * simulator reads, so a save here immediately affects the next Sim Day.
  *
- * Intentionally simple interactions -- no drag-and-drop. Move-up / move-
- * down buttons per row keep the UX snappy on touchpads and work with
- * keyboard focus. Autofill reuses the existing Python helper.
+ * Batting order and field positions drag and drop (dnd-kit); so do the
+ * pitching staff's role slots (8.10.0, #68): drop a pitcher on a filled
+ * role to swap the two. The dropdowns stay as the keyboard path. Autofill
+ * reuses the existing Python helper.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import {
+  ratingCatalog,
+  ratingValue,
+  useColumnChoice,
+  type ColumnDef,
+} from "@/lib/rating-columns";
+import { ColumnPicker } from "@/components/ColumnPicker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -48,6 +56,7 @@ import {
   PointerSensor,
   closestCenter,
   useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -897,6 +906,47 @@ function PitchingTab({
     setDirty(true);
   }
 
+  // Put a pitcher in a role slot (#68, 8.10.0), by drag-and-drop or the
+  // dropdown. The role stays with the slot. A pitcher already on the staff
+  // trades places with whoever holds the slot (an empty slot leaves his old
+  // one empty); one from outside the staff replaces the holder, who goes
+  // back to the unslotted arms.
+  function placePitcher(playerId: string, targetIdx: number) {
+    const target = rows[targetIdx];
+    if (!playerId || !target || target.player_id === playerId) return;
+    setRows((prev) => {
+      const fromIdx = prev.findIndex((r) => r.player_id === playerId);
+      const displaced = prev[targetIdx]?.player_id ?? "";
+      return prev.map((r, i) => {
+        if (i === targetIdx) return { ...r, player_id: playerId };
+        if (i === fromIdx) return { ...r, player_id: displaced };
+        return r;
+      });
+    });
+    setDirty(true);
+  }
+
+  const [dragPitcherId, setDragPitcherId] = useState<string | null>(null);
+  const staffSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+
+  function handleStaffDragStart(e: DragStartEvent) {
+    const playerId = (e.active.data.current as { playerId?: string } | undefined)
+      ?.playerId;
+    setDragPitcherId(playerId ?? null);
+  }
+
+  function handleStaffDragEnd(e: DragEndEvent) {
+    setDragPitcherId(null);
+    const overId = e.over ? String(e.over.id) : "";
+    if (!overId.startsWith("staff-slot-")) return;
+    const playerId = (e.active.data.current as { playerId?: string } | undefined)
+      ?.playerId;
+    if (!playerId) return;
+    placePitcher(playerId, Number(overId.slice("staff-slot-".length)));
+  }
+
   function addRow() {
     const nextRole = STAFF_ROLES.find((r) => !rows.some((x) => x.role === r))
       ?? "MR";
@@ -947,7 +997,13 @@ function PitchingTab({
   if (staff.isError) return <ErrorCard message={(staff.error as Error).message} />;
 
   return (
-    <>
+    <DndContext
+      sensors={staffSensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleStaffDragStart}
+      onDragEnd={handleStaffDragEnd}
+      onDragCancel={() => setDragPitcherId(null)}
+    >
     <Card>
       <CardHeader>
         <div>
@@ -955,7 +1011,9 @@ function PitchingTab({
           <CardDescription>
             Roles used by the sim: SP1–SP5 starters, LR long relief, MR1–MR3
             middle relief, SU setup, CL closer. MR4 and MR5 are optional
-            slots for a 12th and 13th arm.
+            slots for a 12th and 13th arm. Drag a pitcher (by its handle, here
+            or in the list below) onto a role; dropping on a filled role swaps
+            the two.
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
@@ -1049,10 +1107,7 @@ function PitchingTab({
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr
-                key={idx}
-                className="border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40"
-              >
+              <StaffSlotRow key={idx} idx={idx}>
                 <td className="px-6 py-2">
                   <select
                     value={row.role}
@@ -1070,32 +1125,43 @@ function PitchingTab({
                   </select>
                 </td>
                 <td className="px-3 py-2">
-                  <select
-                    value={row.player_id}
-                    onChange={(e) =>
-                      updateRow(idx, { player_id: e.target.value })
-                    }
-                    className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
-                  >
-                    <option value="">— select pitcher —</option>
-                    {pitchers.map((p) => {
-                      const taken =
-                        assignedIds.has(p.player_id) &&
-                        p.player_id !== row.player_id;
-                      return (
-                        <option
-                          key={p.player_id}
-                          value={p.player_id}
-                          disabled={taken}
-                        >
-                          {p.last_name}, {p.first_name}
-                          {pitchersById.get(p.player_id)?.role
-                            ? ` — ${pitchersById.get(p.player_id)?.role}`
-                            : ""}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <div className="flex items-center gap-1.5">
+                    {row.player_id ? (
+                      <StaffGrip
+                        idx={idx}
+                        playerId={row.player_id}
+                        name={pitchersById.get(row.player_id)?.last_name ?? row.player_id}
+                      />
+                    ) : (
+                      <span className="w-5 shrink-0" />
+                    )}
+                    <select
+                      value={row.player_id}
+                      onChange={(e) =>
+                        e.target.value
+                          ? placePitcher(e.target.value, idx)
+                          : updateRow(idx, { player_id: "" })
+                      }
+                      className="h-9 w-full rounded-md border border-border bg-canvas/60 px-2 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+                    >
+                      <option value="">— select pitcher —</option>
+                      {pitchers.map((p) => {
+                        // A pitcher in another role can be picked too: the
+                        // two swap (8.10.0).
+                        const heldRole =
+                          p.player_id !== row.player_id
+                            ? rows.find((r) => r.player_id === p.player_id)?.role
+                            : undefined;
+                        return (
+                          <option key={p.player_id} value={p.player_id}>
+                            {p.last_name}, {p.first_name}
+                            {p.role ? ` — ${p.role}` : ""}
+                            {heldRole ? ` (swap with ${heldRole})` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </td>
                 <td className="px-6 py-2 text-right">
                   <Button
@@ -1107,7 +1173,7 @@ function PitchingTab({
                     <Trash2 className="h-3 w-3" />
                   </Button>
                 </td>
-              </tr>
+              </StaffSlotRow>
             ))}
           </tbody>
         </table>
@@ -1156,8 +1222,71 @@ function PitchingTab({
         </div>
       </CardContent>
     </Card>
-    <EligiblePoolPanel players={pitchers} kind="pitchers" />
-    </>
+    <EligiblePoolPanel players={pitchers} kind="pitchers" draggable />
+    <DragOverlay dropAnimation={null}>
+      {dragPitcherId
+        ? (() => {
+            const p = pitchersById.get(dragPitcherId);
+            const label = p
+              ? `${p.first_name?.[0] ?? ""}. ${p.last_name}`.trim()
+              : dragPitcherId;
+            return (
+              <div className="pointer-events-none rounded-md bg-amber px-2 py-1 text-xs font-semibold text-espresso shadow-lg">
+                {label}
+              </div>
+            );
+          })()
+        : null}
+    </DragOverlay>
+    </DndContext>
+  );
+}
+
+/** A staff role row that takes a dropped pitcher (#68, 8.10.0). */
+function StaffSlotRow({ idx, children }: { idx: number; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `staff-slot-${idx}` });
+  return (
+    <tr
+      ref={setNodeRef}
+      className={cn(
+        "border-b border-border/40 last:border-b-0 hover:bg-surfaceAlt/40",
+        isOver && "bg-amber/10 outline outline-1 -outline-offset-1 outline-amber/60",
+      )}
+    >
+      {children}
+    </tr>
+  );
+}
+
+/** The handle that drags an assigned pitcher to another role. */
+function StaffGrip({
+  idx,
+  playerId,
+  name,
+}: {
+  idx: number;
+  playerId: string;
+  name: string;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: `staff-pitcher-${idx}`,
+    data: { playerId },
+  });
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      className={cn(
+        "cursor-grab touch-none rounded-sm p-0.5 text-muted hover:bg-surfaceAlt hover:text-ink active:cursor-grabbing",
+        isDragging && "opacity-40",
+      )}
+      aria-label={`Drag ${name} to another role`}
+      title="Drag onto another role to move him (a filled role swaps)"
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical className="h-4 w-4" />
+    </button>
   );
 }
 
@@ -1170,25 +1299,14 @@ function PitchingTab({
 // a slot. Read-only — assignment still happens through the dropdowns in
 // the editor card.
 
-const HITTER_POOL_COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "ch", label: "CH" },
-  { key: "ph", label: "PH" },
-  { key: "sp", label: "SP" },
-  { key: "eye", label: "EYE" },
-  { key: "fa", label: "FA" },
-  { key: "arm", label: "ARM" },
+// Today's columns by default; the Columns menu adds the rest (the
+// screwball and knuckleball included) (#69, 8.10.0).
+const HITTER_POOL_DEFAULTS = ["ch", "ph", "sp", "eye", "fa", "arm"];
+const PITCHER_POOL_DEFAULTS = [
+  "arm", "endurance", "control", "movement", "fb", "sl", "cu", "cb", "si",
 ];
-const PITCHER_POOL_COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "arm", label: "AS" },
-  { key: "endurance", label: "EN" },
-  { key: "control", label: "CTRL" },
-  { key: "movement", label: "MOV" },
-  { key: "fb", label: "FB" },
-  { key: "sl", label: "SL" },
-  { key: "cu", label: "CU" },
-  { key: "cb", label: "CB" },
-  { key: "si", label: "SI" },
-];
+const HITTER_POOL_CATALOG = ratingCatalog("hitters", HITTER_POOL_DEFAULTS);
+const PITCHER_POOL_CATALOG = ratingCatalog("pitchers", PITCHER_POOL_DEFAULTS);
 
 function EligiblePoolPanel({
   players,
@@ -1197,11 +1315,16 @@ function EligiblePoolPanel({
 }: {
   players: RosterPlayer[];
   kind: "hitters" | "pitchers";
-  /** When true, each row is a dnd-kit draggable (id `pool-<playerId>`) that
-   *  can be dropped onto a diamond position. Only meaningful for hitters. */
+  /** When true, each row is a dnd-kit draggable (id `pool-<playerId>`): a
+   *  hitter drops onto a diamond position, a pitcher onto a staff role. */
   draggable?: boolean;
 }) {
-  const columns = kind === "hitters" ? HITTER_POOL_COLUMNS : PITCHER_POOL_COLUMNS;
+  const columnChoice = useColumnChoice(
+    `lineup:pool:${kind}`,
+    kind === "hitters" ? HITTER_POOL_CATALOG : PITCHER_POOL_CATALOG,
+    kind === "hitters" ? HITTER_POOL_DEFAULTS : PITCHER_POOL_DEFAULTS,
+  );
+  const columns = columnChoice.columns;
   const [sortKey, setSortKey] = usePersistedState<string>(
     `lineup:eligible:${kind}:sortKey`,
     "overall",
@@ -1254,7 +1377,10 @@ function EligiblePoolPanel({
             comparing options before placing them above.
           </CardDescription>
         </div>
-        <Badge tone="neutral">{players.length}</Badge>
+        <div className="flex items-center gap-2">
+          <ColumnPicker choice={columnChoice} />
+          <Badge tone="neutral">{players.length}</Badge>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -1316,7 +1442,7 @@ function EligiblePoolPanel({
                   player={p}
                   kind={kind}
                   columns={columns}
-                  draggable={draggable && kind === "hitters"}
+                  draggable={draggable}
                 />
               ))}
             </tbody>
@@ -1340,7 +1466,7 @@ function PoolRow({
 }: {
   player: RosterPlayer;
   kind: "hitters" | "pitchers";
-  columns: Array<{ key: string; label: string }>;
+  columns: ColumnDef[];
   draggable: boolean;
 }) {
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
@@ -1363,8 +1489,16 @@ function PoolRow({
             <button
               type="button"
               className="cursor-grab touch-none rounded-sm p-0.5 text-muted hover:bg-surfaceAlt hover:text-ink"
-              aria-label={`Drag ${p.last_name} onto the field`}
-              title="Drag onto a field position"
+              aria-label={
+                kind === "hitters"
+                  ? `Drag ${p.last_name} onto the field`
+                  : `Drag ${p.last_name} onto a staff role`
+              }
+              title={
+                kind === "hitters"
+                  ? "Drag onto a field position"
+                  : "Drag onto a staff role (a filled role swaps)"
+              }
               {...attributes}
               {...listeners}
             >
@@ -1388,7 +1522,7 @@ function PoolRow({
         {p.overall_display ?? p.overall_raw ?? "—"}
       </td>
       {columns.map((col) => {
-        const raw = p.ratings[col.key];
+        const raw = ratingValue(p.ratings, col.key);
         const display =
           raw == null || raw === ""
             ? "—"

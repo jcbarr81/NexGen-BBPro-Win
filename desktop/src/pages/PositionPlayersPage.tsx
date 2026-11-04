@@ -8,6 +8,8 @@
 import { useMemo, useState } from "react";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { ratingCatalog, ratingValue, useColumnChoice } from "@/lib/rating-columns";
+import { ColumnPicker } from "@/components/ColumnPicker";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -54,14 +56,9 @@ const LEVEL_LABEL: Record<RosterLevel, string> = {
   IR: "Injured Res.",
 };
 
-const COLUMNS: Array<{ key: string; label: string }> = [
-  { key: "ch", label: "CH" },
-  { key: "ph", label: "PH" },
-  { key: "sp", label: "SP" },
-  { key: "eye", label: "EYE" },
-  { key: "fa", label: "FA" },
-  { key: "arm", label: "ARM" },
-];
+// The Columns menu chooses among them (#69, 8.10.0).
+const DEFAULTS = ["ch", "ph", "sp", "eye", "fa", "arm"];
+const CATALOG = ratingCatalog("hitters", DEFAULTS);
 
 type SortKey = "name" | "age" | "pos" | "overall" | "bats" | string;
 type SortDir = "asc" | "desc";
@@ -212,6 +209,9 @@ function PositionTable({
     }
   }
 
+  const columnChoice = useColumnChoice("position-players", CATALOG, DEFAULTS);
+  const COLUMNS = columnChoice.columns;
+
   if (players.length === 0) {
     return (
       <Card className="mt-4">
@@ -231,6 +231,7 @@ function PositionTable({
         <div>
           <CardTitle>{players.length} hitters</CardTitle>
         </div>
+        <ColumnPicker choice={columnChoice} />
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -334,7 +335,7 @@ function PositionTable({
                       key={col.key}
                       className="px-3 py-2 text-right tabular-nums"
                     >
-                      <RatingCell value={p.ratings[col.key]} />
+                      <RatingCell value={ratingValue(p.ratings, col.key)} />
                     </td>
                   ))}
                 </tr>

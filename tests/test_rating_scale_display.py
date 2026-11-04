@@ -40,18 +40,22 @@ from tests import rating_scale_support as support
 # shared overall its players show once drafted, not the old flat mean.
 # draft/pool re-pinned for 8.7.2: the pool also carries the screwball and
 # knuckleball ratings (for the prospect card); nothing it showed changed.
+# players/browse, players/list, profile/P1195 and P8398 re-pinned for 8.10.0
+# (#69): every pitch rating is sent, and a profile lists every pitch he
+# throws (P1195 gains his curveball), named as the rest of the game names
+# them (P8398: Curve -> Changeup, Splitter -> Sinker; same values).
 PINNED_SCALE_1 = {
     "contracts": "c1d44a4b8766418b23a66bc8fa97e590a419f5c7963d42a7e4d7fa1d4c6f9e47",
     "draft/pool": "5734c807e1b81b7150722747f0bdce28ddd59b59894bd5e6d6ca355f802b5408",
     "draft/state.selected": "2013de164017f4d14a1ac852b5289327b8d3b7b5c8149b2713fc6bc0bb13fd98",
     "free-agents": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "players/browse": "5874bd35c4f39b178c1ab004d72885bff4eb318cc1c38cdaa9142c8458e94e3c",
-    "players/list": "52550f6c499b2273abef1edad2343feb703d60d71c1aaf7e54c4bda8a9e33ded",
-    "profile/P1195": "198cafd89660d062d94b4436dcf80c2baa7c5352e6a76b1d86d14cb14af12b87",
+    "players/browse": "939ab0c1d71a9c9b1166563bfb103014f50de6d648459151c6bba720d6f6eec2",
+    "players/list": "c7610897da2062d231f5dcb92ef3c5619be1820db6e8a33ab76757d1263aff90",
+    "profile/P1195": "8a7557ca54ca4bc9f400a3eed63f96d367b883ef80a9747c99d8a923c9a9f39b",
     "profile/P1940": "4a874beb0237c6bfc41302b91f65f2b93ab0eb8bd5afe423c8cd051e71bb56d6",
     "profile/P3017": "4306d9d37a132db3d3796449b233c5e8e4fc4cdd5ffee1a604a48d4e936cfded",
     "profile/P5964": "c9f0c3e22b870ed6f1a3677f7a0d9e2dd8fe3c786f09e75663b4ad5507e24e88",
-    "profile/P8398": "5a5d7161f55e2308a411fd2d274f09304de424b8f2c474821be67e1636cce1df",
+    "profile/P8398": "20b186e61118f5e02f29c4152e556a912f5299d91152443942349e1db421ffaa",
     "roster/ALB": "8de33130a2cbd01449a2927a87c49a077cebdf0a433af141dc4b772b96b11a38",
     "roster/DET": "5d1254306191f7ab5e4c319bb4396ed2318572e0b0a8a0e1924b9d853aaeda1e",
     "roster/LOU": "9cb69c8534df22eb4880a51d99e2737b45bab6d8b39a06a221d196ed587378cb",
@@ -70,9 +74,11 @@ PINNED_SCALE_1 = {
 # guide's prospect-card sentence; for 8.7.3: the Depth chart step's
 # ratings-card sentence; for 8.8.0: the Free Agency tutorial's "How do
 # free agents decide?" step; for 8.8.1: that step's offer-dialog sentence;
-# for 8.9.0: its "What he asks for" paragraph).
+# for 8.9.0: its "What he asks for" paragraph; for 8.10.0: the Roster
+# tutorial's "Choose your columns" step and the Lineup tutorial's
+# drag-and-swap pitching staff sentence).
 PINNED_SCALE_1_TUTORIALS = (
-    "213b1c42d8554ee9b66b064dd4bf46ce993962997c95aabce1e820d3264a801b"
+    "f431bde60954a0b5b35a574a0fa3dac6f654b172fb164399d00993504c8cab32"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

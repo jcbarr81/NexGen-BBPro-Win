@@ -1658,6 +1658,10 @@ sets the page's position filter. Small.
 
 ## 68. Drag-and-drop pitcher roles, with swap (owner request, 2026-10-26)
 
+**SHIPPED 8.10.0.** Role rows are drop targets, assigned pitchers and the
+Eligible pitchers list drag by a handle, a filled role swaps; the pitcher
+dropdown swaps as well (a pitcher in another role is marked "swap with X").
+
 "Could we be able to drag and slide our pitcher roles around? And also
 implement a swap mechanism for pitchers in role slots instead of just the drop
 down?" The Pitching Staff editor (`LineupPage.tsx` PitchingTab) has a role
@@ -1671,6 +1675,16 @@ too; dropping on a filled slot swaps the two pitchers. Keep the dropdowns as
 the keyboard fallback. Medium.
 
 ## 69. Choose table columns; see every pitch rating (owner request, 2026-10-26)
+
+**SHIPPED 8.10.0.** `lib/rating-columns.ts` (`useColumnChoice`, kept in
+localStorage per table) + `components/ColumnPicker.tsx` on Roster, Free
+Agency (ratings and stats), Players, Position Players, Pitchers and both
+Lineup pools; defaults are the old columns. The free-agent summary and the
+Players browse payload send every pitch (browse sent none: its FB column was
+always blank); the profile lists cb/scb and names cu Changeup, si Sinker
+(the names `offseason_development._LABELS` uses). Hitter extras
+(GB/FB, platoon, plate discipline) are not in the catalogue: only the roster
+payload carries them.
 
 ksubarton: "Need to be able to edit/change the columns on home roster/free
 agency pages to see all pitches (or maybe a 2nd page that just shows

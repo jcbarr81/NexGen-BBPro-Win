@@ -17,11 +17,24 @@
 import { useEffect, useState } from "react";
 
 const PREFIX = "nexgen:filter:";
+const PREFERENCE_PREFIX = "nexgen:pref:";
 
-function read<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
+type Kind = "session" | "local";
+
+function store(kind: Kind): Storage | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(PREFIX + key);
+    return kind === "local" ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null; // storage blocked (private window, site data off)
+  }
+}
+
+function read<T>(key: string, fallback: T, kind: Kind = "session"): T {
+  const s = store(kind);
+  if (!s) return fallback;
+  try {
+    const raw = s.getItem((kind === "local" ? PREFERENCE_PREFIX : PREFIX) + key);
     if (raw == null) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -29,13 +42,33 @@ function read<T>(key: string, fallback: T): T {
   }
 }
 
-function write<T>(key: string, value: T): void {
-  if (typeof window === "undefined") return;
+function write<T>(key: string, value: T, kind: Kind = "session"): void {
+  const s = store(kind);
+  if (!s) return;
   try {
-    window.sessionStorage.setItem(PREFIX + key, JSON.stringify(value));
+    s.setItem(
+      (kind === "local" ? PREFERENCE_PREFIX : PREFIX) + key,
+      JSON.stringify(value),
+    );
   } catch {
     /* quota / serialization issues — drop silently */
   }
+}
+
+/**
+ * localStorage-backed useState: a preference the owner sets once and
+ * expects to find again next time (e.g. a table's chosen columns, 8.10.0),
+ * unlike the filters above, which reset between launches.
+ */
+export function useStoredPreference<T>(
+  key: string,
+  initial: T,
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => read(key, initial, "local"));
+  useEffect(() => {
+    write(key, value, "local");
+  }, [key, value]);
+  return [value, setValue];
 }
 
 export function usePersistedState<T>(

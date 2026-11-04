@@ -10,6 +10,8 @@ import { useMemo } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { ratingCatalog, ratingValue, useColumnChoice } from "@/lib/rating-columns";
+import { ColumnPicker } from "@/components/ColumnPicker";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useTeams } from "@/lib/use-teams";
 import { useVirtualRows } from "@/lib/use-virtual-rows";
@@ -40,8 +42,12 @@ type SortKey = "name" | "team" | "pos" | "level" | "role" | string;
 type SortDir = "asc" | "desc";
 type RoleFilter = "All" | "Hitters" | "Pitchers";
 
-const RATING_COLS = ["ch", "ph", "sp", "eye", "fa", "arm"];
-const PITCHER_RATING_COLS = ["fb", "control", "movement", "endurance"];
+// Today's columns by default; the Columns menu adds the rest, every pitch
+// included (#69, 8.10.0).
+const HITTER_DEFAULTS = ["ch", "ph", "sp", "eye", "fa", "arm"];
+const PITCHER_DEFAULTS = ["fb", "control", "movement", "endurance"];
+const HITTER_CATALOG = ratingCatalog("hitters", HITTER_DEFAULTS);
+const PITCHER_CATALOG = ratingCatalog("pitchers", PITCHER_DEFAULTS);
 
 export function PlayersBrowserPage() {
   const [search, setSearch] = usePersistedState("players-browser:search", "");
@@ -119,7 +125,10 @@ export function PlayersBrowserPage() {
       (players.data?.players ?? []).filter((p) => p.is_pitcher).length /
         Math.max(1, players.data?.players.length ?? 0) >
         0.5);
-  const ratingCols = showPitcherCols ? PITCHER_RATING_COLS : RATING_COLS;
+  const hitterChoice = useColumnChoice("players:hitters", HITTER_CATALOG, HITTER_DEFAULTS);
+  const pitcherChoice = useColumnChoice("players:pitchers", PITCHER_CATALOG, PITCHER_DEFAULTS);
+  const columnChoice = showPitcherCols ? pitcherChoice : hitterChoice;
+  const ratingCols = columnChoice.columns;
 
   const sorted = useMemo(() => {
     const arr = (players.data?.players ?? []).filter(
@@ -268,6 +277,7 @@ export function PlayersBrowserPage() {
                 <Loader2 className="h-4 w-4 animate-spin text-amber" />
               )}
             </div>
+            <ColumnPicker choice={columnChoice} />
           </div>
           <CardContent className="p-0">
             <div
@@ -285,9 +295,9 @@ export function PlayersBrowserPage() {
                   <Header label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                   {ratingCols.map((c) => (
                     <Header
-                      key={c}
-                      label={c.toUpperCase()}
-                      keyId={c}
+                      key={c.key}
+                      label={c.label}
+                      keyId={c.key}
                       sortKey={sortKey}
                       sortDir={sortDir}
                       onClick={toggleSort}
@@ -376,8 +386,8 @@ export function PlayersBrowserPage() {
                       />
                     </td>
                     {ratingCols.map((c) => (
-                      <td key={c} className="px-3 py-2 text-right tabular-nums">
-                        <RatingCell value={p.ratings[c]} />
+                      <td key={c.key} className="px-3 py-2 text-right tabular-nums">
+                        <RatingCell value={ratingValue(p.ratings, c.key)} />
                       </td>
                     ))}
                   </tr>

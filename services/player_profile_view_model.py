@@ -139,12 +139,17 @@ _PITCHER_RATINGS: Tuple[Tuple[str, str], ...] = (
     ("Hold", "hold_runner"),
     ("Fielding", "fa"),
     ("Arm", "arm"),
+    # Every pitch, named as the rest of the game names it (8.10.0: ``cu`` is
+    # the changeup and ``si`` the sinker; ``cb`` and ``scb`` were missing).
     ("Fastball", "fb"),
     ("Slider", "sl"),
-    ("Curve", "cu"),
-    ("Splitter", "si"),
-    ("Knuckle", "kn"),
+    ("Changeup", "cu"),
+    ("Curveball", "cb"),
+    ("Sinker", "si"),
+    ("Screwball", "scb"),
+    ("Knuckleball", "kn"),
 )
+_PITCH_KEYS = frozenset({"fb", "sl", "cu", "cb", "si", "scb", "kn"})
 
 _STAT_ROUNDING: Dict[str, int] = {
     "avg": 3,
@@ -638,7 +643,7 @@ def _overview_ratings(
         raw = getattr(player, key, None)
         if raw in ("", None):
             continue
-        if key in {"fb", "sl", "cu", "si", "kn"}:
+        if key in _PITCH_KEYS:  # a zero rating: he doesn't throw it
             try:
                 if float(raw) <= 0:
                     continue
