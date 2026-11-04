@@ -724,9 +724,13 @@ def process_negotiations(
     notify_fn: Optional[Callable[[Dict[str, Any]], None]] = None,
     window_day: Optional[int] = None,
     window_total: Optional[int] = None,
+    player_ids: Optional[set] = None,
 ) -> Dict[str, Any]:
     """Advance every open negotiation by one sim day: CPU teams bid, blow-away
     offers can win early, and windows that hit their deadline resolve.
+
+    ``player_ids`` limits the pass to those players' negotiations (8.9.1:
+    settling a closed window's leftovers leaves later offers alone).
 
     ``window_day`` / ``window_total`` opt into the preseason bidding-window
     behavior: resolution is driven by the explicit window day (not the calendar)
@@ -772,6 +776,8 @@ def process_negotiations(
 
     for pid, neg in list(negs.items()):
         if not isinstance(neg, dict) or neg.get("status") != "open":
+            continue
+        if player_ids is not None and pid not in player_ids:
             continue
         if pid in retired:
             neg["status"] = "resolved"

@@ -1594,7 +1594,11 @@ regular-season sim day (calendar deadline). Owner rule (2026-11-03): every
 negotiation settles inside the window, none carried over. 8.9.1: the
 window stays open on its last day until nothing is open (the only
 remaining cause was the deciding pass holding a player back while club
-ownership was unreadable), and leaving the offseason waits for it.
+ownership was unreadable), and leaving the offseason waits for it. Leftovers a closed window already left (alpha-test's 16) settle on the
+autorun tick (`_settle_fa_leftovers`, FA-signing phases only), dated the
+window's last day. Owner (2026-11-03): settle them right after the 2027
+draft, deploy 8.9.1 then, and announce it on Discord; offers after the
+draft sign as during the season.
 
 ## 66. Bench players ask too much in free agency (owner feedback, 2026-10-30)
 

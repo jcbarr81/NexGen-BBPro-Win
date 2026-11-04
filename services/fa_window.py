@@ -482,6 +482,86 @@ def advance_day(
     return {"ok": True, "day": day, "signed": signed, "window": state}
 
 
+def leftover_player_ids(*, data_dir: Path | str | None = None) -> List[str]:
+    """Negotiations a CLOSED window left open (they carry the window day they
+    opened on; offers made after the window closed do not)."""
+    base = get_data_dir() if data_dir is None else Path(data_dir)
+    state = load_window(data_dir=base)
+    if not state or state.get("status") != "closed":
+        return []
+    negs = fa_negotiations.load_negotiations(data_dir=base)["negotiations"]
+    return sorted(
+        pid
+        for pid, neg in negs.items()
+        if isinstance(neg, dict)
+        and neg.get("status") == "open"
+        and neg.get("opened_day") is not None
+    )
+
+
+def settle_leftovers(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
+    """Run the window's deciding pass on negotiations it left open (8.9.1).
+
+    alpha-test's 2027 window closed (before 8.8.0 went live) with 16 players
+    still under negotiation. Each one now gets the pass the last window day
+    would have given it: the best offer he would take signs, else no deal.
+    Dated the window's last day. Returns ``{"ok": False}`` when there is
+    nothing to settle.
+    """
+    base = get_data_dir() if data_dir is None else Path(data_dir)
+    pids = leftover_player_ids(data_dir=base)
+    if not pids:
+        return {"ok": False, "reason": "nothing_to_settle"}
+    state = load_window(data_dir=base) or {}
+    total = int(state.get("total_days", TOTAL_DAYS) or TOTAL_DAYS)
+    start = _parse_date(state.get("start_date")) or date.today()
+    day_date = (start + timedelta(days=max(0, total - 1))).isoformat()
+    players_by_id = _load_players_by_id(base)
+    summary = fa_negotiations.process_negotiations(
+        day_date,
+        data_dir=base,
+        sign_fn=_make_sign_fn(base),
+        players_by_id=players_by_id,
+        teams=_load_teams(),
+        ai_level=_ai_level(data_dir=base),
+        window_day=total,
+        window_total=total,
+        notify_fn=_owner_notifier(base, players_by_id),
+        player_ids=set(pids),
+    )
+    signed = [
+        {
+            "player_id": s.get("player_id"),
+            "player_name": _player_name(players_by_id, str(s.get("player_id"))),
+            "team_id": s.get("signed_team"),
+            "annual_salary": int(s.get("annual_salary", 0) or 0),
+            "years": int(s.get("years", 1) or 1),
+        }
+        for s in (summary.get("signed") or [])
+    ]
+    remaining = leftover_player_ids(data_dir=base)
+    settled = len(pids) - len(remaining)
+    message = (
+        f"{settled} free agent{'s' if settled != 1 else ''} left over from "
+        f"bidding settled: {len(signed)} signed, {settled - len(signed)} took "
+        "no deal."
+        + (f" {len(remaining)} still to settle." if remaining else "")
+    )
+    state.setdefault("log", []).append(
+        {"day": total, "date": day_date, "leftovers": True, "signed": signed,
+         "unsettled": remaining, "message": message}
+    )
+    _save_window(state, data_dir=base)
+    try:
+        from services.fa_window_notices import _active_league, _news
+
+        if _active_league(base):
+            _news(base, f"Free agency: {message}")
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return {"ok": True, "settled": settled, "signed": signed, "remaining": remaining}
+
+
 def close_window(*, data_dir: Path | str | None = None) -> Dict[str, Any]:
     """Force the window to resolve everyone and close (e.g. on phase advance)."""
     base = get_data_dir() if data_dir is None else Path(data_dir)

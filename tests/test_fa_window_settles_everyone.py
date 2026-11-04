@@ -129,3 +129,75 @@ def test_the_news_says_bidding_stays_open(league):  # noqa: F811
     )
     assert out["notified"] == {}
     assert _news(league)[-1].endswith(out["news"])
+
+
+# --- leftovers from a window that closed before 8.9.1 -----------------------
+
+def _close(base):
+    state = w.load_window(data_dir=base)
+    state["status"] = "closed"
+    w._save_window(state, data_dir=base)
+
+
+def test_a_closed_windows_leftovers_settle_and_later_offers_wait(market, monkeypatch):
+    base = market["dir"]
+    _ownership(monkeypatch, set())
+    _cpu_offer("PX", "CPU1", base)      # left open by the window
+    _cpu_offer("PY", "CPU2", base)      # left open, and his signing fails
+    market["fails"].add("PY")
+    _close(base)
+    # An owner's offer after the window closed: an ordinary negotiation.
+    neg.submit_offer("PZ", "BAL", years=1, annual_salary=900_000,
+                     sim_date="2025-03-20", data_dir=base)
+    assert w.leftover_player_ids(data_dir=base) == ["PX", "PY"]
+
+    out = w.settle_leftovers(data_dir=base)
+
+    assert out["ok"] is True and out["settled"] == 2 and out["remaining"] == []
+    assert market["signed"] == {"PX": "CPU1"}
+    assert neg.get_negotiation("PY", data_dir=base)["resolution"]["outcome"] == "no_deal"
+    assert neg.has_open_negotiation("PZ", data_dir=base)  # untouched
+    entry = w.load_window(data_dir=base)["log"][-1]
+    assert entry["leftovers"] is True
+    assert entry["date"] == "2025-03-14"  # the window's last day
+    assert entry["message"] == (
+        "2 free agents left over from bidding settled: 1 signed, 1 took no deal."
+    )
+    assert w.settle_leftovers(data_dir=base) == {"ok": False, "reason": "nothing_to_settle"}
+
+
+def test_an_open_window_has_no_leftovers(market):
+    base = market["dir"]
+    _cpu_offer("PX", "CPU1", base)
+    assert w.leftover_player_ids(data_dir=base) == []
+    assert w.settle_leftovers(data_dir=base)["ok"] is False
+    assert neg.has_open_negotiation("PX", data_dir=base)
+
+
+@pytest.mark.parametrize("phase,settles", [
+    ("PRESEASON", True), ("OFFSEASON", True), ("REGULAR_SEASON", True),
+    ("AMATEUR_DRAFT", False), ("PLAYOFFS", False),
+])
+def test_the_tick_settles_them_only_when_signings_are_open(market, monkeypatch, phase, settles):
+    import api.routers.season as S
+
+    base = market["dir"]
+    _ownership(monkeypatch, set())
+    _cpu_offer("PX", "CPU1", base)
+    _close(base)
+
+    class _Mgr:
+        def __init__(self):
+            self.phase = type("P", (), {"value": phase})()
+
+    monkeypatch.setattr(S, "SeasonManager", _Mgr)
+    monkeypatch.setattr("services.fa_window.get_data_dir", lambda: base)
+
+    out = S._settle_fa_leftovers("t")
+
+    if settles:
+        assert out == {"fa_leftovers_settled": 1, "signed": 1, "remaining": 0}
+        assert market["signed"] == {"PX": "CPU1"}
+    else:
+        assert out is None
+        assert neg.has_open_negotiation("PX", data_dir=base)

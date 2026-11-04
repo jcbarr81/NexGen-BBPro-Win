@@ -3534,6 +3534,43 @@ def _tick_draft_clocks() -> List[Dict[str, Any]]:
     return rows
 
 
+_FA_SIGNING_PHASES = {"REGULAR_SEASON", "OFFSEASON", "PRESEASON"}
+
+
+def _settle_fa_leftovers(league: str) -> Optional[Dict[str, Any]]:
+    """Settle ``league``'s left-over window negotiations, if any (the
+    request league must already be set to it).
+
+    Returns a tick summary entry, or None when there was nothing to do (or
+    the phase pauses signings, e.g. during the amateur draft).
+    """
+    from services.fa_window import leftover_player_ids, settle_leftovers
+
+    if not leftover_player_ids():
+        return None
+    try:
+        phase = SeasonManager().phase.value
+    except Exception:
+        return None
+    if str(phase).upper() not in _FA_SIGNING_PHASES:
+        return None
+    result = settle_leftovers()
+    if not result.get("ok"):
+        return None
+    try:
+        from api import working_copy
+
+        if working_copy.is_enabled():
+            working_copy.push_changes(league)
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return {
+        "fa_leftovers_settled": result.get("settled", 0),
+        "signed": len(result.get("signed") or []),
+        "remaining": len(result.get("remaining") or []),
+    }
+
+
 def _tick_fa_windows() -> List[Dict[str, Any]]:
     """Advance every league whose FA deadline has passed with auto-advance on."""
     from utils import path_utils
@@ -3547,6 +3584,11 @@ def _tick_fa_windows() -> List[Dict[str, Any]]:
             from services import fa_schedule
             from services.fa_window import advance_day, is_open, window_status
 
+            # 8.9.1: negotiations a closed window left open settle now (in a
+            # phase where free agents can sign), not in the regular season.
+            settled = _settle_fa_leftovers(league)
+            if settled is not None:
+                advanced.append({"league": league, **settled})
             if not fa_schedule.is_due():
                 continue
             if not is_open():
