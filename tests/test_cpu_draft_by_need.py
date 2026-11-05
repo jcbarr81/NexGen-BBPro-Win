@@ -126,8 +126,10 @@ def test_a_cpu_club_drafts_by_need_in_the_draft(draft, monkeypatch):
     assert state["selected"][0] == {"overall": 1, "round": 1, "team_id": "CHA", "player_id": "C1"}
 
 
-def test_auto_pick_drafts_by_need_for_a_cpu_club_only(draft, monkeypatch):
-    state, _told, _tmp = draft
+@pytest.fixture
+def short_at_catcher(draft, monkeypatch):
+    """Every club has no catcher; SS1 is the best left, C1 a point behind."""
+
     pool = [_p("SS1", "SS", 60), _p("C1", "C", 59), _p("C2", "C", 58)]
     by_id = {p["player_id"]: p for p in pool}
     monkeypatch.setattr(D, "_prospect_lookup", lambda year: dict(by_id))
@@ -138,10 +140,52 @@ def test_auto_pick_drafts_by_need_for_a_cpu_club_only(draft, monkeypatch):
             p for p in pool if p["player_id"] not in D._selected_ids(st)
         )
     )
+    return draft
+
+
+def test_auto_pick_drafts_by_need_for_any_club_without_a_board(short_at_catcher):
+    state, told, _tmp = short_at_catcher
     assert D.auto_pick({"year": 2027}, identity=ADMIN)["player_id"] == "C1"  # CHA, CPU
-    # BAL is an owner's club with no board: still the best player available
-    # (the CPU would have taken C2).
-    assert D.auto_pick({"year": 2027}, identity=OWNER)["player_id"] == "SS1"
+    # BAL is an owner's club with no board: picked by need too (owner's call,
+    # 2026-11-04), so C2 rather than SS1.
+    assert D.auto_pick({"year": 2027}, identity=OWNER)["player_id"] == "C2"
+    assert told[-1][2]["why"] == "owner" and told[-1][2]["board"] is False
+
+
+def test_the_commissioner_auto_picking_for_an_owner_without_a_board_tells_him(
+    short_at_catcher,
+):
+    state, told, _tmp = short_at_catcher
+    state["overall_pick"] = 2  # BAL
+    assert D.auto_pick({"year": 2027}, identity=ADMIN)["player_id"] == "C1"
+    assert told[-1][0] == "BAL" and told[-1][2]["why"] == "commissioner"
+
+
+def test_an_owner_without_a_board_whose_clock_ran_out_is_picked_for_by_need(
+    short_at_catcher,
+):
+    state, told, _tmp = short_at_catcher
+    state["overall_pick"] = 2  # BAL
+    result = D._pick_for_owner(2027, state, "BAL", why="clock")
+    assert result["player_id"] == "C1" and result["source"] == "clock"
+    reason = told[-1][2]["reason"]
+    assert "no draft board" in reason and "short at C" in reason
+
+
+def test_finishing_the_draft_picks_by_need_for_an_owner_without_a_board(short_at_catcher):
+    state, told, _tmp = short_at_catcher
+    D.auto_advance(
+        {"year": 2027, "stop": "end_of_round", "include_human_teams": True}, identity=ADMIN
+    )
+    picks = {s["team_id"]: s["player_id"] for s in state["selected"]}
+    assert picks["CHA"] == "C1" and picks["BAL"] == "C2"
+
+
+def test_the_reason_names_the_need_it_could_not_fill():
+    plan = {"limits": {}, "needs": {"C": 3.0}}
+    text = D._need_reason(_p("SS1", "SS", 60), plan, [])
+    assert "best player available" in text and "short at C" in text
+    assert "best player available" in D._need_reason(_p("SS1", "SS", 60), None, [])
 
 
 def test_unreadable_depth_falls_back_to_the_best_player_available(draft, monkeypatch):

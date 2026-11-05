@@ -894,15 +894,28 @@ def _cpu_pick(
     team_id: str,
     depth: Optional[OrgDepth],
 ) -> Optional[Dict[str, Any]]:
-    """The prospect a CPU club takes (backlog #70): the best player
+    """The prospect the CPU takes for a club without a draft board (backlog
+    #70; a CPU club, or an owner's club with no board): the best player
     available, weighed by what its organization lacks
     (``draft_board.cpu_plan`` / ``cpu_choose``), so it fills a position it
     has nobody at and doesn't stack one position in a draft. Best available
     when the depth couldn't be read."""
 
+    return _need_choice(year, state, team_id, depth)[0]
+
+
+def _need_choice(
+    year: int,
+    state: Dict[str, Any],
+    team_id: str,
+    depth: Optional[OrgDepth],
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Dict[str, float]]]]:
+    """``_cpu_pick``'s prospect and the plan behind it (``None`` when the
+    depth couldn't be read and it fell back to the best available)."""
+
     by_id = _prospect_lookup(year)
     if depth is None or not by_id:
-        return _best_available(year, state)
+        return _best_available(year, state), None
     team = str(team_id or "").strip().upper()
     plan = draft_board.cpu_plan(
         depth=depth[0].get(team, {}),
@@ -916,8 +929,8 @@ def _cpu_pick(
         drafted=_drafted_by(state, team, by_id),
     )
     if not pid:
-        return None
-    return by_id.get(pid) or {"player_id": pid}
+        return None, plan
+    return by_id.get(pid) or {"player_id": pid}, plan
 
 
 def _announce_picks(year: int, picks: List[Dict[str, Any]], *, draft_complete: bool) -> None:
@@ -1242,23 +1255,21 @@ def auto_pick(
         )
     team_on_clock = _ensure_pick_authorized(identity, state)
 
-    # A club with a draft board gets its board's pick (8.7.0), whoever asked.
-    if draft_board.has_board(year, team_on_clock):
+    # A club with a draft board gets its board's pick (8.7.0), whoever asked;
+    # an owner's club without one the CPU's pick by need (#70), and the owner
+    # is told when someone else made it.
+    from services.team_ownership import human_owned_team_ids_strict
+
+    owners = human_owned_team_ids_strict() or set()
+    if draft_board.has_board(year, team_on_clock) or team_on_clock.strip().upper() in owners:
         mine = str(identity.get("t") or "").strip().upper() == team_on_clock.strip().upper()
         result = _pick_for_owner(
             year, state, team_on_clock, why="owner" if mine else "commissioner"
         )
         if result is not None:
             return result
-    # A CPU club drafts by need (#70); an owner without a board still gets
-    # the best player available.
-    from services.team_ownership import human_owned_team_ids_strict
-
-    owners = human_owned_team_ids_strict()
-    if owners is not None and team_on_clock.strip().upper() not in owners:
-        best = _cpu_pick(year, state, team_on_clock, _org_depth(year, state))
-    else:
-        best = _best_available(year, state)
+    # A CPU club drafts by need (#70).
+    best = _cpu_pick(year, state, team_on_clock, _org_depth(year, state))
     if not best:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1626,8 +1637,9 @@ def _pick_for_owner(
     announce: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Make the pick for a club whose owner is not making it: from its draft
-    board when it has one, otherwise the best player available. The owner
-    is told which player, and why. ``None`` when nobody is left.
+    board when it has one, otherwise the CPU's pick by need (#70, as for a
+    CPU club). The owner is told which player, and why. ``None`` when
+    nobody is left.
 
     ``why`` is ``"clock"`` (his clock ran out), ``"autodraft"`` (his board
     picks as soon as he is up), ``"commissioner"`` or ``"owner"`` (the
@@ -1637,15 +1649,42 @@ def _pick_for_owner(
     if choice is not None:
         player_id, source, reason = choice.player_id, "board", choice.reason
     else:
-        best = _best_available(year, state)
+        # No board: the CPU's pick by need, as for a CPU club (owner's call,
+        # 2026-11-04; it used to be the best player available).
+        by_id = _prospect_lookup(year)
+        best, plan = _need_choice(year, state, team_id, _org_depth(year, state))
         if not best:
             return None
         player_id = str(best.get("player_id", ""))
         source = "clock" if why == "clock" else None
-        reason = "You have no draft board, so the CPU took the best player available."
+        reason = _need_reason(best, plan, _drafted_by(state, team_id, by_id))
     result = _do_pick(year, state, player_id=player_id, announce=announce, source=source)
     _tell_owner_of_pick(year, team_id, result, reason=reason, why=why, board=choice is not None)
     return result
+
+
+def _need_reason(
+    prospect: Dict[str, Any],
+    plan: Optional[Dict[str, Dict[str, float]]],
+    drafted: List[Dict[str, Any]],
+) -> str:
+    """Why the CPU took ``prospect`` for an owner without a draft board."""
+
+    if plan is None:
+        return "You have no draft board, so the CPU took the best player available."
+    pos = draft_board.org_position(prospect)
+    needs = plan.get("needs") or {}
+    already = {draft_board.org_position(p) for p in drafted}
+    if pos in needs and pos not in already:
+        return (
+            "You have no draft board, so the CPU picked by need: your "
+            f"organization is short at {pos}."
+        )
+    open_needs = [p for p in draft_board.CPU_POSITIONS if p in needs and p not in already]
+    text = "You have no draft board, so the CPU picked by need: the best player available"
+    if open_needs:
+        text += f" (you are short at {', '.join(open_needs)}, but nobody close enough was left there)"
+    return text + "."
 
 
 def _tell_owner_of_pick(

@@ -446,11 +446,11 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "How CPU clubs draft",
                 "<p>A CPU club takes the best player available, with an eye on its own organization (every level counted). A position where it has half the league's average or fewer counts a little extra until it drafts one, a bit more when it has nobody there at all, so a club without a catcher will take a catcher who is close to the best player left, though not one far down the class. No position piles up in one draft: a hitting position at most 2 picks in a 4-round draft (3 in 10), pitchers at most three quarters of the rounds, one fewer where the club is already deep.</p>"
-                "<p>An owner's club with no draft board still gets the best player available when a pick is made for it; a <b>draft board</b> is how an owner sets his own needs and limits.</p>",
+                "<p>An owner's club with no draft board is picked for the same way when a pick is made for it (the clock ran out, the commissioner picked, or the owner pressed <b>Auto-pick</b>); a <b>draft board</b> is how an owner sets his own list, needs and limits.</p>",
             ),
             TutorialStep(
                 "The pick clock",
-                "<p>When it's your team's turn you'll get a post in the league's Discord channel naming the round, the pick and your deadline (shown in your own local time), and the draft page shows a live countdown. If the deadline passes without a pick, your <b>draft board</b> picks for you (see the Draft Board guide); with no board, the CPU takes the best available player. Either way the draft moves on to the next owner.</p>"
+                "<p>When it's your team's turn you'll get a post in the league's Discord channel naming the round, the pick and your deadline (shown in your own local time), and the draft page shows a live countdown. If the deadline passes without a pick, your <b>draft board</b> picks for you (see the Draft Board guide); with no board, the CPU picks by need, as it does for its own clubs (see How CPU clubs draft). Either way the draft moves on to the next owner.</p>"
                 "<p>The commissioner sets the clock length under <b>Admin → Draft configuration</b>. At <b>0</b> there is no deadline: the draft waits for each owner and never advances on its own.</p>",
             ),
             TutorialStep(

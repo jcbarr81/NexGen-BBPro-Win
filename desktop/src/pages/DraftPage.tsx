@@ -802,8 +802,8 @@ function DraftControlsPanel({
             disabled={!canActForClock || anyPending}
             title={
               actingForSomeoneElse
-                ? `Make the pick for ${onClockTeamId}: its draft board's pick, or the best available player — use this to move past an owner who isn't responding.`
-                : "Auto-pick for the team on the clock (a CPU club drafts by need)"
+                ? `Make the pick for ${onClockTeamId}: its draft board's pick, or the CPU's pick by need — use this to move past an owner who isn't responding.`
+                : "Auto-pick for the team on the clock: its draft board, or the CPU's pick by need"
             }
           >
             {autoPickMut.isPending ? (
@@ -1469,7 +1469,7 @@ function PicksTable({
                     </Badge>
                   )}
                   {pick.source === "clock" && (
-                    <Badge tone="neutral" title="The pick clock ran out: best available">
+                    <Badge tone="neutral" title="The pick clock ran out: the CPU picked by need">
                       auto
                     </Badge>
                   )}
