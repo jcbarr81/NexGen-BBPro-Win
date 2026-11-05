@@ -635,7 +635,7 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="league_hub",
         title="League Hub",
-        summary="Standings, leaders, stats, players, postseason, history, records, ballparks.",
+        summary="Standings, leaders, stats, players, awards, postseason, history, records, ballparks.",
         route="/league",
         steps=[
             TutorialStep(
@@ -649,6 +649,10 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Players",
                 "<p><b>League → Players</b> is a searchable directory of every player in the league. Filter by team, position, or hitters and pitchers; tick <b>Free agents only</b> for exactly the players on the Free Agency page, or <b>Hide retired</b>. Retired players show as <b>Retired</b>, and a player under contract with no roster spot shows under his club as <b>No spot</b>. Every column sorts, <b>Columns</b> chooses which ratings show (pitchers can show every pitch), and a name opens the player's page.</p>",
+            ),
+            TutorialStep(
+                "Awards",
+                "<p><b>League → Awards</b> lists each season's winners, chosen when the regular season ends. A league split into two leagues gives one of each award per league. The <b>MVP</b> goes to the best OPS and the <b>Cy Young</b> to the best ERA among qualified players. A <b>Gold Glove</b> goes to the best fielder at each position (P, C, 1B, 2B, 3B, SS, LF, CF, RF): mostly his fielding ratings, adjusted by his season's fielding numbers. A <b>Silver Slugger</b> goes to the best OPS at each position, three outfielders and a DH included. A player is judged at the position he started at most. Every award also shows on the winner's page (<b>Career ledger → Awards</b>).</p>",
             ),
             TutorialStep(
                 "Postseason stats",

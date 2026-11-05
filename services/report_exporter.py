@@ -804,13 +804,12 @@ def _load_awards(path: Path | None) -> Dict[str, Any]:
 
 
 def _award_name(awards: Dict[str, Any], key: str) -> str:
-    entry = awards.get(key, {})
-    if not isinstance(entry, dict):
-        return ""
-    name = str(entry.get("player_name") or "").strip()
-    if not name:
-        name = str(entry.get("player_id") or "").strip()
-    return name
+    """Every winner of award ``key`` that season: one name, or one per
+    league ("A (Mercado), B (Grandberg)") since 8.12.0."""
+
+    from services.season_awards import winners_text
+
+    return winners_text(awards, key)
 
 
 def _load_champion(path: Path | None, league_year: str) -> tuple[str, str, str]:

@@ -378,7 +378,11 @@ def _load_award_counts(context: SeasonContext) -> Dict[str, Dict[str, int]]:
             if not pid:
                 continue
             per_player = counts.setdefault(pid, {})
-            key = str(award_key or "").strip()
+            # Count by award type: a per-league or per-position key
+            # ("GOLD_GLOVE:Mercado:SS", 8.12.0) weighs as its award.
+            from services.season_awards import award_type
+
+            key = award_type(str(award_key or ""), info)
             if not key:
                 continue
             per_player[key] = int(per_player.get(key, 0)) + 1

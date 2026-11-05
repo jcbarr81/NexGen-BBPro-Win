@@ -3571,6 +3571,46 @@ def _settle_fa_leftovers(league: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def _backfill_awards(league: str) -> Optional[Dict[str, Any]]:
+    """Hand out the awards an archived season is missing (8.12.0: Gold
+    Gloves and Silver Sluggers for seasons archived before them), once; the
+    request league must already be set. None when there was nothing to do.
+    """
+    from services import season_awards
+
+    changed = season_awards.backfill_archived_seasons()
+    if not changed:
+        return None
+    try:
+        from utils.news_logger import log_news_event
+        from utils.path_utils import get_data_dir
+
+        for season in changed:
+            if not season.get("added"):
+                continue
+            year = season.get("league_year")
+            log_news_event(
+                f"{year} Gold Gloves and Silver Sluggers have been awarded"
+                " (League > Awards).",
+                category="awards",
+                file_path=get_data_dir() / "news_feed.txt",
+            )
+    except Exception:  # pragma: no cover - defensive
+        pass
+    try:
+        from api import working_copy
+
+        if working_copy.is_enabled():
+            working_copy.push_changes(league)
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return {
+        "awards_backfilled": [
+            {"season_id": s.get("season_id"), "added": s.get("added")} for s in changed
+        ]
+    }
+
+
 def _tick_fa_windows() -> List[Dict[str, Any]]:
     """Advance every league whose FA deadline has passed with auto-advance on."""
     from utils import path_utils
@@ -3589,6 +3629,12 @@ def _tick_fa_windows() -> List[Dict[str, Any]]:
             settled = _settle_fa_leftovers(league)
             if settled is not None:
                 advanced.append({"league": league, **settled})
+            try:
+                backfilled = _backfill_awards(league)
+            except Exception as exc:  # pragma: no cover - defensive
+                backfilled = {"awards_error": str(exc)}
+            if backfilled is not None:
+                advanced.append({"league": league, **backfilled})
             if not fa_schedule.is_due():
                 continue
             if not is_open():

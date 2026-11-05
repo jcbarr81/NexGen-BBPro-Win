@@ -1757,3 +1757,29 @@ those notifications today, but owner-only content will keep landing there.
 **Plan:** call `require_team_owner(identity, team_id)` on the read endpoints
 (the commissioner still passes), and check the client only asks for the
 user's own club. Small.
+
+## 72. Awards on player pages; per-league awards; Gold Gloves and Silver Sluggers (owner request, 2026-11-05) — SHIPPED 8.12.0
+
+`services/season_awards.py` chooses MVP, Cy Young, Gold Gloves and Silver
+Sluggers (per league when `division_to_league` names two or more leagues);
+the rollover writes them to `careers/<season>/awards.json` and posts a news
+item; the autorun tick hands archived seasons the kinds they lack, once
+(`backfill_archived_seasons`, `api/routers/season._backfill_awards`); the
+player profile, Awards page, Hall of Fame, league history, report and almanac
+exports and timeline read the new keys. `game_runner._persist_physics_stats`
+counts games started by position (`gs_<pos>`). Tests:
+`tests/test_season_awards.py`. Open follow-ups:
+
+- **More awards:** Rookie of the Year, Reliever of the Year, Manager of the
+  Year (the Hall of Fame already weighs ROY).
+- **MVP and Cy Young are one stat each** (OPS, ERA). A value measure
+  (OPS+ with playing time and position, or WAR-like) would pick a more
+  believable MVP; FIP/innings for the Cy Young.
+- **Fielding numbers aren't split by position:** a player's fielding line is
+  his season at every position. `gs_<pos>` decides where he is judged; the
+  stats used for that position still include his games elsewhere.
+- **Substitutes aren't counted** in `gs_<pos>` (starts only): fine for
+  regulars, thin for a late-inning defensive specialist.
+- 2026 fielding rate stats mix two periods (#53); 2026's Gold Gloves rest on
+  them and on fielding pct.
+

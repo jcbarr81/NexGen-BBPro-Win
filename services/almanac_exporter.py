@@ -1039,6 +1039,24 @@ def _season_awards(entry: Mapping[str, Any]) -> Dict[str, Any]:
     return dict(awards) if isinstance(awards, Mapping) else {}
 
 
+def _award_type_links(awards: Mapping[str, Any], kind: str) -> str:
+    """Every winner of award ``kind`` (one per league since 8.12.0)."""
+
+    from services.season_awards import award_type, sort_key
+
+    links = []
+    for key, info in sorted(
+        ((str(k), v) for k, v in awards.items() if isinstance(v, Mapping)),
+        key=lambda kv: sort_key(kv[0], kv[1]),
+    ):
+        if award_type(key, info) != kind:
+            continue
+        link = _award_winner_link(awards, key)
+        league = str(info.get("league") or "")
+        links.append(f"{link} ({html.escape(league)})" if league else link)
+    return ", ".join(links) or "--"
+
+
 def _award_winner_link(awards: Mapping[str, Any], key: str) -> str:
     entry = awards.get(key, {})
     if not isinstance(entry, Mapping):
@@ -1052,10 +1070,13 @@ def _award_winner_link(awards: Mapping[str, Any], key: str) -> str:
 
 def _season_award_display_rows(awards: Mapping[str, Any]) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
-    for award_key in sorted(str(key) for key in awards.keys()):
+    from services.season_awards import award_label, sort_key
+
+    items = [(str(k), v) for k, v in awards.items() if isinstance(v, Mapping)]
+    for award_key, info in sorted(items, key=lambda kv: sort_key(kv[0], kv[1])):
         rows.append(
             {
-                "award": award_key.replace("_", " "),
+                "award": award_label(award_key, info),
                 "winner": _award_winner_link(awards, award_key),
             }
         )
@@ -1322,8 +1343,8 @@ def _award_rows(season_payloads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             {
                 "season_id": f"<a href=\"../seasons/{html.escape(season_id)}.html\">{html.escape(season_id)}</a>",
                 "league_year": year or "",
-                "mvp": _award_winner_link(awards, "MVP"),
-                "cy_young": _award_winner_link(awards, "CY_YOUNG"),
+                "mvp": _award_type_links(awards, "MVP"),
+                "cy_young": _award_type_links(awards, "CY_YOUNG"),
             }
         )
     rows.sort(key=lambda row: (_safe_int(row.get("league_year"), fallback=0), _strip_tags(str(row.get("season_id") or ""))))

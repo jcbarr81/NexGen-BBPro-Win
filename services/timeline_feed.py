@@ -57,7 +57,9 @@ def build_timeline_feed(*, season_id: str | None = None, limit: int | None = 50)
             if not isinstance(info, dict):
                 continue
             player_name = str(info.get("player_name") or info.get("player_id") or "").strip()
-            label = _award_label(award_key)
+            from services.season_awards import award_label
+
+            label = award_label(str(award_key), info if isinstance(info, dict) else None)
             detail = f"{player_name} won {label}" if player_name else f"{label} awarded"
             entries.append(
                 {

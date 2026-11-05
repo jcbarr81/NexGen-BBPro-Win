@@ -17,7 +17,7 @@ everyone; admin-only sections are marked.
 2. [Sidebar & navigation](#sidebar--navigation)
 3. [Today](#today) — [Dashboard](#dashboard) · [Season](#season) · [News](#news)
 4. [My Team](#my-team) — [Roster](#roster) · [Lineup](#lineup) · [Depth Chart](#depth-chart) · [Training](#training) · [Injuries](#injuries) · [Notifications](#notifications) · [Finance](#finance) · [Contracts](#contracts) · [Settings](#team-settings)
-5. [League](#league) — Standings · Leaders · Stats · Players · Teams · Schedule · Playoffs · History · Hall of Fame · Records · Ballparks
+5. [League](#league) — Standings · Leaders · Stats · Players · Awards · Teams · Schedule · Playoffs · History · Hall of Fame · Records · Ballparks
 6. [Transactions](#transactions) — Free Agency · Trades · Draft · Activity
 7. [Admin (Commissioner)](#admin-commissioner)
 8. [Platform admin (Super-admin)](#platform-admin-super-admin)
@@ -508,6 +508,16 @@ the same rules, and each extension is a news item.
   **Retired** (with **Hide retired**), a player under contract with no roster
   spot shows under his club as **No spot**, and **Free agents only** lists
   exactly the players on the Free Agency page.
+- **Awards** — each season's winners, chosen when the regular season ends;
+  a league split into two leagues gives one of each per league. **MVP** (best
+  OPS) and **Cy Young** (best ERA) among qualified players; a **Gold Glove**
+  at each position (P, C, 1B, 2B, 3B, SS, LF, CF, RF), mostly by fielding
+  ratings and adjusted by the season's fielding numbers (fielding pct; range
+  factor except catchers and pitchers; passed balls for catchers; outfield
+  assists), with games in half the club's games; a **Silver Slugger** for
+  the best OPS at each position (three outfielders and a DH), with 2 plate
+  appearances per team game. A player is judged at the position he started
+  at most. Each award also shows on the winner's page (Career ledger → Awards).
 - **Postseason stats.** A player's profile has a **Postseason** table under
   his regular stats, and a club's page shows its postseason history (record,
   each series, its best hitters and pitchers of the run). Playoff games never

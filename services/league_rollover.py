@@ -10,7 +10,6 @@ import json
 import logging
 import shutil
 
-from playbalance.awards_manager import AwardsManager
 from playbalance.season_context import CAREER_DATA_DIR, SeasonContext
 from services.contracts_service import rollover_contracts_for_new_season
 from services.offseason_finance_flow import run_offseason_financial_rollover
@@ -165,7 +164,9 @@ class LeagueRolloverService:
         self._archive_file(_DATA_DIR / "special_events.json", season_dir / "special_events.json", artifacts, "special_events")
         self._archive_draft_assets(season_dir, artifacts, league_year)
 
-        awards_path = self._archive_awards(season_dir, stats_payload, artifacts)
+        awards_path = self._archive_awards(
+            season_dir, stats_payload, artifacts, league_year
+        )
 
         metadata = {
             "season_id": season_id,
@@ -716,7 +717,14 @@ class LeagueRolloverService:
         season_dir: Path,
         stats_payload: Dict[str, Any],
         artifacts: Dict[str, str],
+        league_year: Optional[int] = None,
     ) -> Optional[Path]:
+        """The season's awards (``services.season_awards``): MVP, Cy Young,
+        Gold Gloves and Silver Sluggers, per league when the league is split
+        into two, written to ``awards.json`` and announced in the news."""
+
+        from services import season_awards
+
         try:
             players = load_players_from_csv("data/players.csv")
         except Exception:
@@ -724,54 +732,48 @@ class LeagueRolloverService:
         player_stats: Dict[str, Dict[str, Any]] = stats_payload.get("players", {})
         if not players or not player_stats:
             return None
-        team_stats: Dict[str, Dict[str, Any]] = stats_payload.get("teams", {})
-        player_lookup = {p.player_id: p for p in players}
-        batting = {
-            pid: stats
-            for pid, stats in player_stats.items()
-            if pid in player_lookup and (stats.get("pa") or stats.get("ab"))
-        }
-        pitching = {
-            pid: stats
-            for pid, stats in player_stats.items()
-            if pid in player_lookup and (stats.get("ip") or stats.get("era") is not None)
-        }
-        if not batting or not pitching:
-            return None
-        max_games = 0
+        data_dir = Path(_DATA_DIR)
         try:
-            games_list = [
-                int(v.get("g", v.get("games", 0)) or 0)
-                for v in team_stats.values()
-            ]
-            max_games = max(games_list) if games_list else 0
+            from services.season_teams import season_team_labels
+
+            team_of = season_team_labels(data_dir)
         except Exception:
-            max_games = 0
-        min_pa = int(round(max_games * 3.1)) if max_games else 0
-        min_ip = float(round(max_games * 1.0, 2)) if max_games else 0.0
-        awards = {}
+            _LOGGER.exception("rollover: could not read the players' clubs for the awards")
+            team_of = {}
         try:
-            manager = AwardsManager(
-                player_lookup,
-                batting,
-                pitching,
-                min_pa=min_pa,
-                min_ip=min_ip,
+            leagues = season_awards.current_team_leagues(data_dir)
+        except Exception:
+            leagues = {}
+        try:
+            awards = season_awards.select_awards(
+                players={p.player_id: p for p in players},
+                stats=player_stats,
+                team_of=team_of,
+                team_league=leagues,
+                max_games=season_awards.max_team_games(stats_payload.get("teams", {})),
             )
-            winners = manager.select_award_winners()
-            for name, winner in winners.items():
-                player = winner.player
-                awards[name] = {
-                    "player_id": player.player_id,
-                    "player_name": f"{player.first_name} {player.last_name}".strip(),
-                    "metric": winner.metric,
-                }
         except Exception:
+            _LOGGER.exception("rollover: could not choose the season awards")
             awards = {}
-        payload = {"awards": awards, "generated_at": _now_iso()}
+        payload = {
+            "awards": awards,
+            "kinds": list(season_awards.AWARD_KINDS),
+            "generated_at": _now_iso(),
+        }
         awards_path = season_dir / "awards.json"
         _write_json(awards_path, payload)
         artifacts["awards"] = _relative(awards_path)
+        if awards:
+            try:
+                from utils.news_logger import log_news_event
+
+                log_news_event(
+                    season_awards.news_text(awards, league_year),
+                    category="awards",
+                    file_path=data_dir / "news_feed.txt",
+                )
+            except Exception:  # pragma: no cover - defensive
+                _LOGGER.exception("rollover: could not post the awards news item")
         return awards_path
 
     def _archive_file(

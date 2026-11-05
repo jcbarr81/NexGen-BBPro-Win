@@ -237,23 +237,6 @@ def test_league_rollover_archives_and_resets(sandbox, monkeypatch):
         ],
     )
 
-    class _StubAwards:
-        def __init__(self, players, batting, pitching, **_kwargs):
-            self.players = players
-
-        def select_award_winners(self):
-            return {
-                "MVP": SimpleNamespace(
-                    player=SimpleNamespace(player_id="BAT1", first_name="Slug", last_name="Gerr"),
-                    metric=0.95,
-                ),
-                "CY_YOUNG": SimpleNamespace(
-                    player=SimpleNamespace(player_id="PIT1", first_name="Ace", last_name="Pitch"),
-                    metric=3.25,
-                ),
-            }
-
-    monkeypatch.setattr(rollover_mod, "AwardsManager", _StubAwards)
     monkeypatch.setattr(rollover_mod, "reset_transaction_cache", lambda: None)
 
     service = rollover_mod.LeagueRolloverService()

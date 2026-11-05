@@ -1509,6 +1509,45 @@ def _collect_awards_history(player: Any) -> List[Dict[str, str]]:
     except Exception:
         pass
 
+    # Each archived season's awards.json: the MVP, Cy Young, Gold Gloves and
+    # Silver Sluggers the rollover chose (8.12.0: the profile never read
+    # them, so a winner's page showed no award).
+    try:
+        from playbalance.season_context import CAREER_DATA_DIR, SeasonContext
+        from services import season_awards
+
+        for season in SeasonContext.load().iter_archived_seasons():
+            season_id = str((season or {}).get("season_id") or "").strip()
+            if not season_id:
+                continue
+            path = CAREER_DATA_DIR / season_id / "awards.json"
+            if not path.exists():
+                continue
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            awards = payload.get("awards") if isinstance(payload, dict) else None
+            if not isinstance(awards, dict):
+                continue
+            year_label = str(season.get("league_year") or season_id)
+            for key, info in awards.items():
+                if not isinstance(info, dict):
+                    continue
+                if str(info.get("player_id") or "").strip() != player_id:
+                    continue
+                name = season_awards.award_label(key, info)
+                pair = (year_label, name)
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                entries.append(
+                    {
+                        "year": year_label,
+                        "award": name,
+                        "description": season_awards.metric_text(key, info),
+                    }
+                )
+    except Exception:
+        pass
+
     entries.sort(key=lambda e: (e.get("year") or "", e.get("award") or ""))
     return entries
 

@@ -824,8 +824,14 @@ def _persist_physics_stats(
     home_team: Team | None,
     away_team: Team | None,
     postseason: bool = False,
+    start_positions: Mapping[str, Mapping[str, str]] | None = None,
 ) -> None:
     """Add one game's lines into the season totals and save them.
+
+    ``start_positions`` (``{"home": {pid: pos}, "away": ...}``, the lineups'
+    positions as the game started) adds a game started at that position
+    (``gs_SS``, ``gs_DH`` ...): the season awards judge a player at the
+    position he played most (8.12.0).
 
     A ``postseason`` game adds into the postseason totals
     (``POSTSEASON_STATS_PATH``, same keys) instead, and never touches the
@@ -1109,6 +1115,17 @@ def _persist_physics_stats(
             )
             season.update(compute_fielding_derived(state))
             season.update(compute_fielding_rates(state))
+
+    for side_positions in (start_positions or {}).values():
+        for pid, pos in (side_positions or {}).items():
+            key = str(pos or "").strip().upper()
+            if not key or key == "P":
+                continue
+            payload = _player_and_season(str(pid))
+            if payload is None:
+                continue
+            _player, season = payload
+            season[f"gs_{key}"] = season.get(f"gs_{key}", 0) + 1
 
     post_team_holders: list[SimpleNamespace] = []
 
@@ -1557,6 +1574,7 @@ def _run_physics_game(
             home_team=home_state.team,
             away_team=away_state.team,
             postseason=postseason,
+            start_positions={"home": home_positions, "away": away_positions},
         )
 
     if jr is not None:

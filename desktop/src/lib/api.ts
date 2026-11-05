@@ -187,9 +187,19 @@ export interface AllStarHistory {
 // --- Awards ---
 
 export interface AwardWinner {
+  /** Unique key within the season ("MVP", "GOLD_GLOVE:Mercado:SS"). */
   award: string;
+  /** MVP, CY_YOUNG, GOLD_GLOVE or SILVER_SLUGGER. */
+  type?: string;
+  /** How it reads: "MVP (Mercado)", "Gold Glove, SS (Mercado)". */
+  label?: string;
+  /** The league it was given in ("" when the league isn't split). */
+  league?: string;
+  position?: string;
+  team_id?: string;
   player_id: string;
   player_name: string;
+  /** The winner's line: "1.064 OPS", ".992 fielding pct, 4.28 range factor". */
   metric: string;
 }
 

@@ -1,4 +1,4 @@
-"""Awards endpoints — surface MVP/Cy Young/ROY/Manager-of-the-Year etc.
+"""Awards endpoints: MVP, Cy Young, Gold Gloves and Silver Sluggers.
 
 `AwardsManager` already computes winners during the season-end rollover
 and writes them to ``<careers>/<season_id>/awards.json``. These endpoints
@@ -33,19 +33,29 @@ def _load_awards_file(season_dir: str) -> Dict[str, Any]:
 
 
 def _flatten_winners(awards_block: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """One row per winner, in award order (MVP, Cy Young, Gold Gloves by
+    position, Silver Sluggers), each with its display ``label``."""
+
+    from services import season_awards
+
     rows: List[Dict[str, Any]] = []
     block = awards_block.get("awards") if isinstance(awards_block, dict) else {}
     if not isinstance(block, dict):
         return rows
-    for award_name, winner in block.items():
-        if not isinstance(winner, dict):
-            continue
+    items = [(str(k), v) for k, v in block.items() if isinstance(v, dict)]
+    items.sort(key=lambda kv: season_awards.sort_key(kv[0], kv[1]))
+    for award_key, winner in items:
         rows.append(
             {
-                "award": str(award_name),
+                "award": award_key,
+                "type": season_awards.award_type(award_key, winner),
+                "label": season_awards.award_label(award_key, winner),
+                "league": str(winner.get("league") or ""),
+                "position": str(winner.get("position") or ""),
+                "team_id": str(winner.get("team_id") or ""),
                 "player_id": str(winner.get("player_id") or ""),
                 "player_name": str(winner.get("player_name") or ""),
-                "metric": str(winner.get("metric") or ""),
+                "metric": season_awards.metric_text(award_key, winner),
             }
         )
     return rows
