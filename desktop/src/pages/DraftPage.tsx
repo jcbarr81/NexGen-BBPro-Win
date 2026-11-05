@@ -811,7 +811,7 @@ function DraftControlsPanel({
             ) : (
               <Bot className="h-4 w-4" />
             )}
-            Auto-pick (best avail)
+            Auto-pick
           </Button>
           <span className="mx-1 text-muted">|</span>
           <Button

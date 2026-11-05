@@ -77,9 +77,9 @@ TUTORIALS: List[Tutorial] = [
         steps=[
             TutorialStep(
                 "Spotlight",
-                "<p>The <b>Spotlight</b> card at the top of the Dashboard lists the big things happening for your club right now, so you never have to go looking for them: free-agent bidding (the day, when bids are due, where you lead and where you've been outbid), the amateur draft (when it is, and whether you're on the clock), players in the final year of their contracts, qualifying offers waiting on your decision, and who left your club at the rollover with the roster spots still to fill. Trade offers and injured-list returns show here too.</p>"
+                "<p>The <b>Spotlight</b> card at the top of the Dashboard lists the big things happening for your club right now, so you never have to go looking for them: free-agent bidding (the day, when bids are due, where you lead and where you've been outbid), the amateur draft (when it is, and whether you're on the clock), players in the final year of their contracts (whether you can still extend each one, or he has broken off talks or won't negotiate), qualifying offers waiting on your decision, and who left your club at the rollover with the roster spots still to fill. Trade offers and injured-list returns show here too. In the offseason and preseason it also lists lineup players who are no longer on your active roster and open pitching-staff roles, and in any phase it tells you when your active roster has no healthy catcher.</p>"
                 "<p>Each row has a button to the page where you act on it; a row with a deadline shows a countdown. Rows that need you are listed first. When nothing needs you, the card shrinks to a single line. Like every dashboard card, you can move it with <b>Edit layout</b>.</p>"
-                "<p>You also get a notification when free-agent bidding opens and whenever you've been outbid; turn it off on the <b>Notifications</b> page (Preferences tab, \"Free-agent bidding opened, or you were outbid\").</p>",
+                "<p>You also get a notification when free-agent bidding opens, whenever you've been outbid, and when a player you bid on signs or takes no deal; turn it off on the <b>Notifications</b> page (Preferences tab, \"Free-agent bidding: opened, outbid, signed, no deal\").</p>",
             ),
             TutorialStep(
                 "Hero & team logo",
@@ -103,7 +103,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Sidebar navigation",
-                "<p>The sidebar shrinks to seven top-level destinations: <b>Today</b> (Dashboard / Season / News), four hub links (<b>My Team</b>, <b>League</b>, <b>Transactions</b>, <b>Admin</b>), <b>Notifications</b>, and <b>Help</b>. Click a hub to land on a card grid of every page in that category — capability-gated cards auto-hide. Right-click any sidebar entry or hub card to <b>Pin</b> it to a Favorites section, and use the chevron at the very top of the rail to collapse the sidebar to icons-only. See the <b>Navigation</b> tutorial for a full tour.</p>",
+                "<p>The sidebar keeps a short list of top-level destinations: <b>Today</b> (Dashboard / Season / News), four hub links (<b>My Team</b>, <b>League</b>, <b>Transactions</b>, <b>Admin</b>), <b>Notifications</b>, <b>Utilities</b>, and <b>Help &amp; Tutorials</b> at the bottom. Click a hub to land on a card grid of every page in that category — capability-gated cards auto-hide. Right-click any sidebar entry or hub card to <b>Pin</b> it to a Favorites section, and use the chevron at the very top of the rail to collapse the sidebar to icons-only. See the <b>Navigation</b> tutorial for a full tour.</p>",
             ),
         ],
     ),
@@ -151,7 +151,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Offseason rollover",
-                "<p>Entering the Offseason runs the rollover automatically: contracts advance, expired deals become free agents, arbitration and qualifying offers are processed, finances roll over, and players age. Admins can review/run pieces from <b>Admin → Offseason Flow</b>.</p>",
+                "<p>Entering the Offseason runs the rollover automatically: contracts advance, expired deals become free agents, arbitration and qualifying offers are processed, finances roll over, the season's big-league service time is added up, players age, and some players retire (yours too: see <b>Players who may retire</b> in the Roster tutorial). Each owner gets a news item and a notification naming who left the club and the roster spots to fill. Admins can review/run pieces from <b>Admin → Offseason Flow</b>.</p>",
             ),
             TutorialStep(
                 "One-off what-if games",
@@ -289,15 +289,21 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Track minimums",
-                "<p>Every track needs at least 5%. Save is disabled until both columns sum to exactly 100. Use the plus/minus buttons or type a value directly.</p>",
+                "<p>Every track needs at least 5%; a track set below it is flagged, and a save with one below 5% is refused. Save is disabled until both columns sum to exactly 100. Drag a track's slider or type a value directly; <b>Auto-balance evenly</b> splits a column evenly across its tracks.</p>",
             ),
             TutorialStep(
                 "Team vs league defaults",
-                "<p>New teams inherit the league-wide mix. <b>Reset to defaults</b> clears your team override and returns to the league baseline.</p>",
+                "<p>New teams inherit the league-wide mix. <b>Revert to defaults</b> clears your team override and returns to the league baseline.</p>",
             ),
             TutorialStep(
                 "When it applies",
                 "<p>Focus allocations feed the preseason training camp and ongoing development deltas. Budgets under Finance (training/development/facilities) scale the camp intensity.</p>",
+                rating_scale=1,
+            ),
+            TutorialStep(
+                "When it applies",
+                "<p>Your focus shapes each offseason's <b>player development</b>, at the season rollover: it decides which ratings your young players' growth goes to and where your older players' decline falls. It adds no points of its own. The development and training budgets under Finance speed growth (by up to about 15%), and the development budget also slows decline. Spring training camp adds no rating points; its report shows the offseason's changes. See <b>Player development</b> in the tutorial <b>The Updated Game Engine</b>.</p>",
+                rating_scale=2,
             ),
             TutorialStep(
                 "Save keyboard shortcut",
@@ -313,11 +319,11 @@ TUTORIALS: List[Tutorial] = [
         steps=[
             TutorialStep(
                 "Accessing injuries",
-                "<p>Open <b>My Team → Injuries</b>. Players are split into DL, IR, and day-to-day groups. Counts and return dates live at the top of each group.</p>",
+                "<p>Open <b>My Team → Injuries</b>. Players are split into the <b>Injured List</b> (10 and 15 days), the <b>60-Day Injured List</b> and <b>Day-to-day</b> groups. Counts and return dates live at the top of each group.</p>",
             ),
             TutorialStep(
                 "IL tiers",
-                "<p>The injured list follows MLB: 10 days for position players, 15 for pitchers, and a 60-day list for long-term injuries. Every row shows the eligible-to-activate date and days remaining, counted in LEAGUE days — a stint elapses as you play games, not as real-world time passes.</p>",
+                "<p>The injured list follows MLB: 10 days for position players, 15 for pitchers, and a 60-day list for long-term injuries. Every row shows the eligible-to-activate date and days remaining, counted in LEAGUE days — a stint elapses as you play games, not as real-world time passes. Between seasons the days count to next Opening Day, and the rollover heals every injury that would end before it.</p>",
             ),
             TutorialStep(
                 "Placing and activating",
@@ -332,20 +338,22 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="free_agency",
         title="Free Agency",
-        summary="Browse unsigned players and sign them to your roster.",
+        summary="Browse unsigned players, make offers, and follow where your bids stand.",
         route="/free-agency",
         steps=[
             TutorialStep(
                 "Open Free Agency",
-                "<p>Use <b>Transactions → Free Agency</b>. The page lists every unsigned player with ratings, role, and recent stats.</p>",
+                "<p>Use <b>Transactions → Free Agency</b>. The page lists every unsigned player, with his age; filter by hitters or pitchers, position or name, and every column sorts. The <b>Ratings</b> / <b>Stats</b> switch shows his ratings or his most recent season's stats, and <b>Columns</b> chooses which ratings show (every pitch included). An injured free agent carries an <b>Injured</b> badge with the injury and his expected return.</p>",
             ),
             TutorialStep(
-                "Sign a player",
-                "<p>Click <b>Sign</b> on a row, pick the destination level (ACT/AAA/LOW), set the salary/years, and optionally a <b>signing bonus</b> (which debits your cash now). The dialog shows the player's <b>asking price</b> for the years you enter and the length he wants, plus the top <b>competing CPU bids</b> so you know who you're up against. As with extensions, his ask is <b>above what he'll really take</b>: an offer at or above his hidden minimum is acceptable, the best acceptable offer wins, and the dialog won't tell you in advance whether a figure is enough. Confirm — the signing is written to the transactions log. Signing into a full level isn't refused; send someone down before your next game, because the season check won't sim an over-limit roster.</p>",
+                "Make an offer",
+                "<p>Click <b>Offer</b> on a row (it reads <b>Update</b> once you have a bid in). In the dialog set the <b>Years</b>, the <b>Annual salary</b> (left blank, it uses his ask), an optional <b>Signing bonus</b> (which debits your cash) and the <b>Roster level</b> (ACT/AAA/LOW). The dialog shows the player's <b>asking price</b> for the years you enter and the length he wants, plus the top <b>Competing bids</b> from CPU clubs. As with extensions, his ask is <b>above what he'll really take</b>: an offer at or above his hidden minimum is acceptable, and the best acceptable offer wins.</p>"
+                "<p><b>Submit offer</b> does not sign him on the spot: it opens a negotiation, and he decides on his decision day (the message after you submit says when, and CPU clubs may counter until then). Follow it under <b>Your negotiations</b>, where you can also withdraw it. Signing into a full level isn't refused; send someone down before your next game, because the season check won't sim an over-limit roster.</p>",
             ),
             TutorialStep(
                 "The offseason bidding window",
-                "<p>With the finance model on, offseason free agency runs as a <b>multi-day auction</b> rather than first-come-first-served. Every free agent stays biddable for the whole window, CPU teams post and raise offers each day, and nobody signs until a bid has had a day of exposure — so you can always counter or pivot to someone else. The Season page shows which day you're on and who's still unsigned.</p>",
+                "<p>With the finance model on, offseason free agency runs as a <b>multi-day auction</b> rather than first-come-first-served. Every free agent stays biddable for the whole window, CPU teams post and raise offers each day, and nobody signs until a bid has had a day of exposure — so you can always counter or pivot to someone else. The Season page shows which day you're on and who's still unsigned.</p>"
+                "<p>Every negotiation settles inside the window: on its last day the window stays open until each player has signed or taken no deal, and no open negotiation is carried into the new season. An offer made after the window closes is an ordinary negotiation, decided as in the season.</p>",
             ),
             TutorialStep(
                 "How do free agents decide?",
@@ -446,7 +454,7 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "How CPU clubs draft",
                 "<p>A CPU club takes the best player available, with an eye on its own organization (every level counted). A position where it has half the league's average or fewer counts a little extra until it drafts one, a bit more when it has nobody there at all, so a club without a catcher will take a catcher who is close to the best player left, though not one far down the class. No position piles up in one draft: a hitting position at most 2 picks in a 4-round draft (3 in 10), pitchers at most three quarters of the rounds, one fewer where the club is already deep.</p>"
-                "<p>An owner's club with no draft board is picked for the same way when a pick is made for it (the clock ran out, the commissioner picked, or the owner pressed <b>Auto-pick</b>); a <b>draft board</b> is how an owner sets his own list, needs and limits.</p>",
+                "<p>An owner's club with no draft board is picked for the same way when a pick is made for it (the clock ran out, the commissioner picked, or the owner pressed <b>Auto-pick</b>). When the clock or the commissioner made the pick, the owner's notification says why (for example, that the organization is short at C). A <b>draft board</b> is how an owner sets their own list, needs and limits.</p>",
             ),
             TutorialStep(
                 "The pick clock",
@@ -459,8 +467,8 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Admin controls",
-                "<p><b>Advance to next owner</b> runs the CPU teams' picks and stops the moment an owner-controlled team is on the clock. Advancing stops at owners, so nobody spends an owner's pick by accident. The one exception is the commissioner's <b>Auto-finish draft</b>, which makes every remaining pick, owners included, after a confirmation that lists whose picks will be made. If an owner isn't responding, the commissioner can still take the pick deliberately — <b>Auto-pick</b> and <b>Make pick</b> relabel to <b>Pick for TEAM</b> when it isn't your own team.</p>"
-                "<p>Admins also see a third <b>Admin</b> tab with the commissioner tools:</p>"
+                "<p><b>Advance to next owner</b> runs the CPU teams' picks and stops the moment an owner-controlled team is on the clock. Advancing stops at owners, so nobody spends an owner's pick by accident. The one exception is the commissioner's <b>Auto-finish draft</b>, which makes every remaining pick, owners included, after a confirmation that lists whose picks will be made. If an owner isn't responding, the commissioner can still take the pick deliberately: <b>Make pick</b> relabels to <b>Pick for TEAM</b> when it isn't your own team, and <b>Auto-pick</b> makes the pick for the team on the clock (its draft board's pick, or the CPU's pick by need) and notifies that club's owner.</p>"
+                "<p>Admins also see an <b>Admin</b> tab with the commissioner tools:</p>"
                 "<ul>"
                 "<li><b>Draft configuration</b> — rounds, pool size, the pick clock and the wait after the draft.</li>"
                 "<li><b>Amateur draft timing</b> — mid-season or preseason (see Draft timing above).</li>"
@@ -483,7 +491,7 @@ TUTORIALS: List[Tutorial] = [
         steps=[
             TutorialStep(
                 "What the board is for",
-                "<p>When your pick clock runs out, a pick is made for you. Your <b>draft board</b> decides who: a ranked list of prospects plus a few rules. Without one, the CPU takes the best player left by overall, whatever your club needs.</p>"
+                "<p>When your pick clock runs out, a pick is made for you. Your <b>draft board</b> decides who: a ranked list of prospects plus a few rules. Without one, the CPU picks for you by need, the way it drafts for its own clubs (see <b>How CPU clubs draft</b> in the Amateur Draft tutorial).</p>"
                 "<p>Open <b>Transactions &rarr; Draft &rarr; My Board</b>. The board is <b>private</b>: nobody else can see it, the commissioner included. You can build it as soon as the draft class is published, before the draft opens.</p>"
                 "<p>The board is used when your clock runs out, when the commissioner auto-picks for you or finishes the draft, and when you press <b>Auto-pick</b> yourself.</p>",
             ),
@@ -517,7 +525,7 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Seeing what it will do",
                 "<p>The top of <b>My Board</b> shows what the board would take at your next pick if it picked right now, and why (who it passed over, and which rule). It changes as other clubs pick. Save your board to update it.</p>"
-                "<p>Each pick the board makes is listed under <b>Picks your board made</b> with its reason, and you get a notification (rule: <i>A draft pick was made for you</i>). Other owners only see that the pick came from your draft board.</p>",
+                "<p>Each pick the board makes is listed under <b>Picks your board made</b> with its reason, and unless you pressed <b>Auto-pick</b> yourself you get a notification (rule: <i>A draft pick was made for you (draft board or pick clock)</i>). Everyone else, the commissioner included, only sees that the pick came from your draft board.</p>",
             ),
         ],
     ),
@@ -586,16 +594,17 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Track contracts league-wide",
-                "<p><b>My Team → Contracts</b> is the league-wide contract tracker: salary (with total commitment for multi-year deals), years left, FA year, and service time. Hover the status badges — <b>Expiring</b>, <b>Arb-eligible</b>, <b>options</b>, <b>Non-gtd</b> — for a plain-language explanation of what each means for your planning.</p>",
+                "<p><b>My Team → Contracts</b> is the league-wide contract tracker: salary (with total commitment for multi-year deals), years left, FA year, and service time. Hover the status badges — <b>Expiring</b>, <b>Arb-eligible</b>, <b>options</b>, <b>Non-gtd</b> — for a plain-language explanation of what each means for your planning. <b>My team</b> and <b>Expiring</b> are separate filters, so you can turn both on to find your walk-year players.</p>"
+                "<p><b>Service time</b> belongs to the player, not his contract: every regular-season day he spends on a big-league active roster or injured list counts, and it goes with him when his deal ends or he changes clubs. A new league credits its opening-day big leaguers for the careers they had before the league began. Service time decides arbitration and qualifying-offer eligibility and the pricing tier a player is in.</p>",
             ),
             TutorialStep(
                 "Extending your players",
-                "<p>Open a player's profile and click <b>Negotiate</b> on the Contract card. He names an <b>asking price</b> for the years you enter: what he'd get as a free agent, less a little for a long deal's security. His ask is <b>above what he'll really take</b>, so you can haggle. An offer at or above his hidden minimum signs him; below it he <b>comes down a little</b> and loses some <b>patience</b>, and a <b>lowball</b> (well under his minimum) costs twice as much and doesn't move him. The dialog shows his <b>mood</b> (open, impatient, about to walk away). Run out of patience and he <b>breaks off talks</b> for 7–30 days (during the offseason free-agency window, 1–5 window days); you get a news item and a notification. Each player has his own temperament, so some are easier than others.</p>"
+                "<p>Open a player's profile and click <b>Negotiate</b> on the Contract card. He names an <b>asking price</b> for the years you enter: what he'd get as a free agent, less a little for a long deal's security. His ask is <b>above what he'll really take</b>, so you can haggle. An offer at or above his hidden minimum signs him; below it he <b>comes down a little</b> and loses some <b>patience</b>, and a <b>lowball</b> (well under his minimum) costs twice as much and doesn't move him. The dialog shows his <b>mood</b> (open, impatient, about to walk away), and says when his big-league record raises or lowers his price. Run out of patience and he <b>breaks off talks</b> for 7–30 days (during the offseason free-agency window, 1–5 window days); you get a news item and a notification. Each player has his own temperament, so some are easier than others.</p>"
                 "<p>In the season, a <b>veteran in the last year of his deal</b> may refuse to negotiate at all and plan to test free agency. An <b>overwhelming offer</b>, about one and a half times his value, is always accepted, even from a player who has refused or broken off talks. CPU clubs extend the walk-year players they want to keep, under the same rules and within their budgets.</p>",
             ),
             TutorialStep(
                 "Arbitration decisions",
-                "<p>When the league runs arbitration (<b>Standard</b> and <b>MLB-Like</b> presets — it's off in Simple), an <b>Arbitration</b> panel appears on the Finance page listing your arbitration-eligible players with their current and projected salary. For each, choose <b>Offer raise</b> (agree to the projected raise), <b>Hold</b>, or <b>Non-tender</b> (release him to free agency). Players only become arbitration-eligible after roughly three seasons of service, so a brand-new league shows an empty panel.</p>",
+                "<p>When the league runs arbitration (<b>Standard</b> and <b>MLB-Like</b> presets — it's off in Simple), an <b>Arbitration</b> panel appears on the Finance page listing your arbitration-eligible players with their current and projected salary. For each, choose <b>Offer raise</b> (agree to the projected raise), <b>Hold</b>, or <b>Non-tender</b> (release him to free agency). Players become arbitration-eligible after roughly three seasons of big-league service. A new league's veterans start with credit for their careers before it, so they can be eligible from its first offseason.</p>",
             ),
             TutorialStep(
                 "Contract options & pre-arb renewals",
@@ -626,7 +635,7 @@ TUTORIALS: List[Tutorial] = [
     Tutorial(
         tutorial_id="league_hub",
         title="League Hub",
-        summary="Standings, leaders, stats, teams, schedule, playoffs, history, ballparks.",
+        summary="Standings, leaders, stats, players, postseason, history, records, ballparks.",
         route="/league",
         steps=[
             TutorialStep(
@@ -636,6 +645,10 @@ TUTORIALS: List[Tutorial] = [
             TutorialStep(
                 "Leaders & stats",
                 "<p><b>League → Leaders</b> ranks the top N hitters/pitchers by every major stat using MLB qualifier rules. <b>League → Stats</b> shows the full league stats table with team totals.</p>",
+            ),
+            TutorialStep(
+                "Players",
+                "<p><b>League → Players</b> is a searchable directory of every player in the league. Filter by team, position, or hitters and pitchers; tick <b>Free agents only</b> for exactly the players on the Free Agency page, or <b>Hide retired</b>. Retired players show as <b>Retired</b>, and a player under contract with no roster spot shows under his club as <b>No spot</b>. Every column sorts, <b>Columns</b> chooses which ratings show (pitchers can show every pitch), and a name opens the player's page.</p>",
             ),
             TutorialStep(
                 "Postseason stats",
@@ -981,7 +994,8 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Offseason review tabs",
-                "<p><b>Admin → Offseason Flow</b> now has a Review section with four tabs: <b>Contracts</b> (expirations next year), <b>Arbitration</b> (filed awards + delta), <b>Budgets</b> (per-team year-over-year delta with category breakdown), and <b>GM Queue</b> (pending owner decisions with team / queue / status filters and inline Approve / Reject buttons for the row in focus).</p>",
+                "<p><b>Admin → Offseason Flow</b> now has a Review section with four tabs: <b>Contracts</b> (expirations next year), <b>Arbitration</b> (filed awards + delta), <b>Budgets</b> (per-team year-over-year delta with category breakdown), and <b>GM Queue</b> (pending owner decisions with team / queue / status filters and inline Approve / Reject buttons for the row in focus).</p>"
+                "<p>The <b>Offseason Status</b> card's <b>Arb candidates</b> count is exactly the players the rollover will take to arbitration (the league's switches, service time and eligibility rule). It reads <b>Off</b> when the league doesn't run arbitration, and drops to 0 once the offseason workflow has run.</p>",
             ),
             TutorialStep(
                 "Users",
@@ -1139,7 +1153,7 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Right-click rosters",
-                "<p>On the <b>Roster</b> page, right-click any row for the quick context menu (promote, demote, DL/IR, cut, open profile). The three-dot button gives the same actions for keyboard users.</p>",
+                "<p>On the <b>Roster</b> page, right-click any row for the quick context menu (open profile, training focus, move to Active / AAA / Low-A, release). Injured-list placements are on the Injury Center page. The three-dot button gives the same actions for keyboard users.</p>",
             ),
             TutorialStep(
                 "Escape closes dialogs",
@@ -1182,7 +1196,8 @@ TUTORIALS: List[Tutorial] = [
             ),
             TutorialStep(
                 "Recent events tab",
-                "<p>The <b>Recent events</b> tab shows the last ~100 notifications generated for this team — newest first, with severity badge, sim date, and message. Use it to audit what the engine has been firing on or to confirm a rule you just enabled is actually catching events.</p>",
+                "<p>The <b>Recent events</b> tab shows the last ~100 notifications generated for this team — newest first, with severity badge, sim date, and message. Use it to audit what the engine has been firing on or to confirm a rule you just enabled is actually catching events.</p>"
+                "<p>A club's notifications are private to its owner and the commissioner: they can name the free agents you bid on and your offers. The page always shows your own club's, even after you browse to another team.</p>",
             ),
             TutorialStep(
                 "Resuming after a stop",
@@ -1198,7 +1213,7 @@ TUTORIALS: List[Tutorial] = [
         steps=[
             TutorialStep(
                 "Top-level destinations",
-                "<p>The sidebar collapses into seven top-level items: <b>Today</b> (Dashboard, Season, News), four <b>hubs</b> (My Team, League, Transactions, Admin — admin-only), <b>Notifications</b>, and <b>Help</b>. Every other page lives behind a hub click.</p>",
+                "<p>The sidebar collapses into a few top-level items: <b>Today</b> (Dashboard, Season, News), four <b>hubs</b> (My Team, League, Transactions, Admin — admin-only), <b>Notifications</b>, <b>Utilities</b>, and <b>Help &amp; Tutorials</b> at the bottom. Every other page lives behind a hub click.</p>",
             ),
             TutorialStep(
                 "Hubs are landing pages",

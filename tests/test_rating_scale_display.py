@@ -77,9 +77,11 @@ PINNED_SCALE_1 = {
 # for 8.9.0: its "What he asks for" paragraph; for 8.10.0: the Roster
 # tutorial's "Choose your columns" step and the Lineup tutorial's
 # drag-and-swap pitching staff sentence; for 8.11.0: the Draft tutorial's
-# "How CPU clubs draft" step and its pick-clock sentence).
+# "How CPU clubs draft" step and its pick-clock sentence; 2026-11-04 docs
+# audit: steps brought up to date for 8.5-8.11 and a League Hub "Players"
+# step).
 PINNED_SCALE_1_TUTORIALS = (
-    "709121fb81783e318586c394d12d668b0935f4b70cfbb6b341777d5b73f67aa8"
+    "21e167460bf7a5bc70318de9fc7711fd0009ac54b6d1424daf8c6538badad102"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

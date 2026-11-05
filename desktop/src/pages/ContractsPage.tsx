@@ -52,7 +52,7 @@ const BADGE_TIPS = {
   nonGtd:
     "Not guaranteed — the team can release this player without owing the rest of the deal.",
   service:
-    "Big-league service time (162 days = 1 season). Drives arbitration and free-agency eligibility.",
+    "Big-league service time (172 days = 1 season). Drives arbitration and free-agency eligibility.",
 } as const;
 
 type SortKey =

@@ -319,7 +319,7 @@ function AllocatorCard({
               </div>
               {value < MIN_PERCENT && value > 0 && (
                 <p className="text-[11px] text-warning">
-                  Below the {MIN_PERCENT}% minimum — server will clamp on save.
+                  Below the {MIN_PERCENT}% minimum — the save will be refused.
                 </p>
               )}
             </div>

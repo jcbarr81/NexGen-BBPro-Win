@@ -3,23 +3,29 @@
 > **Read this first, then keep it open.** It is the single onboarding map for
 > picking up development. It points you at the authoritative files, explains how
 > the pieces fit, tells you exactly how to run and test the project, and lists
-> the traps that will otherwise cost you hours. It was written 2026-07-16 against
-> `main` @ VERSION **7.0.11**.
+> the traps that will otherwise cost you hours. It was first written 2026-07-16
+> against `main` @ VERSION **7.0.11** and brought up to date 2026-11-04 at
+> VERSION **8.11.0** (sections 1, 2, 4, 5 and 7 rewritten for the cloud-only
+> product; the engine, testing-trap and gotcha sections still hold).
 
 ---
 
-## 0. The five files that are "source of truth"
+## 0. The files that are "source of truth"
 
 Docs in this repo drift; several planning docs carry dated reconciliation
 banners. When something here disagrees with reality, believe the code + these:
 
 | File | What it authoritatively covers |
 |---|---|
-| `README.md` | Product summary + current (7.x) architecture + getting-started commands. **Current — trust it.** |
-| `AGENTS.md` | Repo conventions (Codex reads this first): venv, versioning/SemVer, release-note + build workflow. |
-| `release_notes.md` | The source of truth for **what has actually shipped**. Git log is the other. |
-| `docs/deep_review_plan.md` | The "truth document" for the 2026-07 improvement program (Sprints 0–2). Every task has a status row + a dated change-log entry with commit hashes. |
-| `docs/future_work.md` | The backlog (with a reconciliation banner; older items use stale "v5.x" milestone language). |
+| `AGENTS.md` | Repo conventions (Codex reads this first): venv, test commands + the known failures, versioning/SemVer, release-note workflow. |
+| `release_notes_draft.md` | **What has actually shipped, one entry per version** (7.1 to the current VERSION, oldest first). Git log is the other. `release_notes.md` stops at 7.2 — don't use it for anything newer. |
+| `docs/future_work.md` | The backlog, numbered (#7 … #71). Shipped items keep a **SHIPPED x.y.z** marker for their design history; older items use stale "v5.x" milestone language. |
+| `docs/audits/2026-10-06-engine-ratings-audit/` | The engine/ratings audit that drove 7.45–8.1: `REPORT.md` (findings), `DECISIONS.md` (the owner's numbered decisions the code cites), `RELEASE4/5/6_PLAN.md`. |
+| `docs/deep_review_plan.md` | The "truth document" for the 2026-07 improvement program (Sprints 0–2, complete). Historical now. |
+
+`README.md` is the product summary. Up to 8.11.0 it still described the 7.x
+desktop + cloud split (Electron, `.venv2` commands); if it and this file
+disagree, prefer this file and `RELEASE.md` (deploy steps).
 
 Everything below consolidates the operational knowledge that is otherwise spread
 across those and learned the hard way.
@@ -30,18 +36,25 @@ across those and learned the hard way.
 
 A full baseball-league simulation game: create a league, manage rosters,
 contracts, finances, scouting, drafts, and trades, and simulate seasons
-**pitch-by-pitch** with a physics-based engine. It runs two ways from one
-codebase:
+**pitch-by-pitch** with a physics-based engine. It is a **cloud web app only**
+(multi-tenant, several human owners per league):
 
-- **Electron desktop app** (local, single-user) — the FastAPI backend runs as a
-  bundled "sidecar" and the React UI talks to it over localhost.
-- **Cloud** (multi-tenant) — the same FastAPI backend on **Google Cloud Run**,
-  the React UI served statically, **Firebase Auth + Firestore** for accounts,
-  memberships, and the per-request active league (`X-League-Id` header).
+- the FastAPI backend on **Google Cloud Run** (service `nexgen-bbpro-api`,
+  region `us-central1`, project `nexgen-bbpro`, one instance at most);
+- the React UI on **Firebase Hosting** (site `nexgen-bbpro`), which rewrites
+  every non-file path to the Cloud Run service (`firebase.json`);
+- **Firebase Auth + Firestore** for accounts, memberships and the per-request
+  active league (`X-League-Id` header);
+- league data as files in the GCS bucket `nexgen-bbpro-data`, mounted into
+  the container and worked on through a local copy (§2);
+- a **Cloud Scheduler** job (`nexgen-autorun-tick`, every 10 minutes) that
+  drives commissioner-scheduled sims, pick clocks and free-agency deadlines.
 
-The old **PyQt6 desktop UI (`ui/`) is retired** — its code remains only for
-reference (and a couple of retired modules are the reason some endpoints once
-imported dead code; see §8).
+The **Electron desktop app and the Windows installer are retired** (the React
+code still lives in `desktop/` and `npm run dev` still starts Electron, but
+nothing ships that way). The old **PyQt6 desktop UI is retired** too; what is
+left of `ui/` is not imported by `api/`, `services/`, `playbalance/` or
+`utils/`.
 
 ---
 
@@ -49,13 +62,15 @@ imported dead code; see §8).
 
 | Layer | Where | What |
 |---|---|---|
-| UI | `desktop/` | React 18 + TypeScript + Tailwind (~60 pages). `desktop/src/lib/api.ts` is the typed API client; `apiRequest()` attaches the bearer token + `X-League-Id`. Shipped via Electron locally or served by Cloud Run. |
-| API | `api/` | FastAPI backend. `api/app.py` builds the app; routers live in `api/routers/*.py` (~60). Auth dependency in `api/security.py` (`require_bearer` → `CurrentIdentity`). WebSocket live-game streaming in `api/ws/`. |
+| UI | `desktop/` | React 18 + TypeScript + Tailwind (~60 pages, `HashRouter`). `desktop/src/lib/api.ts` is the typed API client; `apiRequest()` attaches the bearer token + `X-League-Id`. Built with `npm run build:renderer` (Vite → `desktop/dist`) and served by Firebase Hosting. Sign-in uses the Firebase JS SDK (`desktop/src/lib/firebase.ts`). Live-game WebSockets go straight to the Cloud Run URL (Hosting does not proxy WS; `desktop/.env`). |
+| API | `api/` | FastAPI backend. `api/app.py` builds the app; routers live in `api/routers/*.py` (56). Auth in `api/security.py` (`require_bearer` → identity; `require_team_owner` on every `{team_id}` write) and `api/firebase_auth.py` (`NEXGEN_FIREBASE=1`). WebSocket live-game streaming in `api/ws/`. `/meta/app-status` and `/healthz` report the running VERSION. |
+| Storage | `api/working_copy.py`, `utils/path_utils.py` | On Cloud Run the bucket is a gcsfuse mount (`NEXGEN_SYNC_REMOTE=/data`); with `NEXGEN_WORKING_COPY=1` the app pulls it into a local dir (`NEXGEN_DATA_ROOT=/work/data`) at startup, serves every request from there and pushes changed files back after each mutating request (and on shutdown). Background threads that write league data must run through `working_copy.as_background_writer`. Each league is a folder of CSV/JSON files under `data/leagues/<id>/data/`. |
+| Scheduler | `api/routers/season.py` (`machine_router`) | `POST /season/schedule/tick`, authorized by the `NEXGEN_SCHEDULER_TOKEN` secret, not a user token: runs due auto-run sims, draft pick clocks, free-agency window deadlines and avatar recolors for every league. |
 | Services | `services/` | Business logic: finance, contracts, trades (`cpu_trade_proposals.py`, `cpu_trade_evaluator.py`, `trade_execution.py`), team outlook, callups (`inseason_callups.py`), scouting, drafts, prospect rules, analytics, league lifecycle/registry/rollover, standings, etc. |
-| **Sim engine (shipping)** | `physics_sim/` | The physics-first game engine: pitch flight, contact, fielding, usage/fatigue. `physics_sim/engine.py` (`simulate_game`), `config.py` (`DEFAULT_TUNING` knobs), `physics.py`, `usage.py`, `models.py`. This is what runs games. |
+| **Sim engine (shipping)** | `physics_sim/` | The physics-first game engine: pitch flight, contact, fielding, usage/fatigue. `physics_sim/engine.py` (`simulate_game`), `config.py` (`DEFAULT_TUNING` knobs), `physics.py`, `usage.py`, `models.py`. This is what runs games. **Engine generations** (`physics_sim/engine_generation.py`): each league season is given a generation when it starts — 4/5 are `DEFAULT_TUNING` (+ `profiles/engine_5.json`); 6 (8.0.0, with ratings converted to the full 1-99 "scale 2") is live behind `NEXGEN_GENERATION6_SCALE2=1`; 7 (ball flight, real parks, 8.1.0) is shipped **off** behind `NEXGEN_GENERATION7`. Runbooks: `docs/rating_scale_switch_runbook.md`, `docs/generation7_switch_runbook.md`. |
 | Legacy engine (gated) | `playbalance/` | The original PBINI-driven engine + season orchestration. The **game** part is archived — it only runs under `PB_ALLOW_LEGACY_ENGINE=1` (`playbalance/legacy_guard.py`). But **season orchestration helpers here are still live** (e.g. `playbalance/season_manager.py`, `season_simulator.py`, `game_runner.py` which dispatches to the physics engine). |
-| Data | `data/` | CSV/JSON game data. The committed sample league lives under `data/leagues/cbl/data/`. `data/MLB_avg/` holds the real-MLB benchmark tables the KPI harness compares against. |
-| Auth | Firebase (cloud) / HMAC session token (local) | `NEXGEN_FIREBASE=1` turns on the cloud control plane; local uses `users.txt` + a signed session token. |
+| Data | `data/` | CSV/JSON game data. The committed sample league lives under `data/leagues/cbl/data/`. `data/MLB_avg/` holds the real-MLB benchmark tables the KPI harness compares against. `data/` is excluded from the image (`.dockerignore`); live leagues exist only in the bucket. |
+| Auth | Firebase (cloud) / HMAC session token (local) | `NEXGEN_FIREBASE=1` turns on the cloud control plane; local uses `users.txt` + a signed session token. **Team ownership lives in each league's `users.txt`, not `teams.csv`** — use `services/team_ownership.py` (`human_owned_team_ids_strict` for anything that acts for CPU clubs). |
 
 **Game execution path (the important one):**
 `api/routers/season.py` → `playbalance/game_runner.py::simulate_game_scores`
@@ -81,7 +96,12 @@ harness scripts are the gates:
   change.
   - It sims against a **committed calibration fixture** (`data/calibration/`,
     generated deterministically by `scripts/generate_calibration_roster.py`) so
-    runs are reproducible and never touch a real league.
+    runs are reproducible and never touch a real league. Two more fixtures
+    exist: `data/calibration_league` (a league-like spread, from
+    `scripts/generate_league_fixture.py`) and `data/calibration_flat`
+    (bunched ratings). `--engine 6` / `--engine 7` run the later engine
+    generations; CI (`.github/workflows/physics_sim_kpi.yml`) runs on PRs
+    that touch the engine, the harness or the services it reads.
 - **Parity/benchmark harness — `scripts/benchmark_sim_days.py`.** Times an N-day
   sim on a throwaway copy of a league and emits digests (`scores`,
   `season_stats`, `pitcher_recovery`) so a pure-performance change can *prove* it
@@ -100,7 +120,8 @@ harness scripts are the gates:
 
 ## 4. Environments & running
 
-**Prereqs:** Python 3.11+, Node 20+.
+**Prereqs:** Python 3.11+, Node 20+. (The Cloud Run image runs Python 3.12
+— `Dockerfile` — while local development and tests use the 3.11 `.venv`.)
 
 **Python virtualenv:** use **`.venv`** (Python 3.11; the `python` on PATH).
 `.venv2` is broken -- its base interpreter was switched to Python 3.12 while
@@ -115,25 +136,37 @@ below.)
   API tests locally; it mirrors production exactly.
 - `requirements-dev.txt` — the above API stack **plus** the heavy local-only
   ML/image stack (torch, diffusers, transformers, opencv) used for logo/avatar
-  generation and PyInstaller packaging.
+  generation and the retired PyInstaller packaging.
 
 ```powershell
 # backend deps that match production
 .\.venv\Scripts\python.exe -m pip install -r requirements-server.txt
 
-# run the API (see README for the exact uvicorn command / Electron dev flow)
-# frontend:
-cd desktop; npm install; npm run dev
+# local API + browser UI (no Electron): two terminals
+.\.venv\Scripts\python.exe -m api --port 8765   # API on 127.0.0.1:8765
+cd desktop; npm install; npm run dev:vite        # http://localhost:5173 (.env.development points at 8765)
+
+# client type check (the AGENTS.md "tsc check")
+cd desktop; npm run typecheck
 ```
 
-**Build a desktop release** (per `AGENTS.md`):
-`.\.venv\Scripts\python.exe scripts\build_release.py --clean`
+Local runs never set `NEXGEN_FIREBASE` / `NEXGEN_WORKING_COPY`, so they use
+`users.txt` logins and the repo's `data/` (or `NEXGEN_DATA_ROOT`). Never point
+a local run at a copy of a live league without `NEXGEN_DATA_ROOT` set to a
+scratch folder.
 
-**Deploy (cloud):** the backend deploys to Cloud Run from
-`requirements-server.txt`; the React app is built and served statically; Firebase
-provides auth/Firestore. (No one-command deploy is committed — confirm the exact
-`gcloud`/Firebase steps with the owner before deploying. Deploys are
-outward-facing and should be gated on the acceptance items in §7.)
+**Deploy (cloud):** the exact steps are in `RELEASE.md` — backend
+`gcloud run deploy nexgen-bbpro-api --source . --project nexgen-bbpro --region us-central1`
+(builds the `Dockerfile`; uploads filtered by `.gcloudignore`; env vars and
+secrets carry over to the new revision), client
+`cd desktop; npm run build:renderer` then
+`npx firebase-tools deploy --only hosting --project nexgen-bbpro` from the
+repo root, then `python scripts/announce_release.py --message "..."` to post
+to Discord. Deploys are outward-facing (live leagues with human owners):
+confirm with the owner before deploying.
+
+`scripts\build_release.py` (the Windows EXE + installer) is retired; don't
+run it for a release, whatever older docs say.
 
 ---
 
@@ -163,8 +196,11 @@ python scripts/run_tests_isolated.py --list      # list files, don't run
 `scripts/run_tests_isolated.py` runs **each `tests/test_*.py` file in its own
 pytest subprocess** (fresh interpreter → zero cross-file leakage), restores
 `data/` between files, and exits non-zero on any failure. **This is the
-authoritative "is the suite green" check.** As of this handoff it is
-**201/201 green**.
+authoritative "is the suite green" check.** At 8.11.0 there are 435 test
+files; five fail in every run and are known, not regressions:
+`test_league_command_center`, `test_openai_client`, `test_payroll_policy`,
+`test_phase5_path_isolation`, `test_team_loader` (`AGENTS.md`). Anything else
+red is yours.
 
 `-j N` (8.8.3) runs N files at a time. Tests write into the checkout's
 `data/`, so files can't share one checkout: the driver commits a snapshot
@@ -176,7 +212,17 @@ each its own pytest `--basetemp`, and removes the worktrees at the end.
 
 `tests/conftest.py` also does a cheap per-test env restore (`NEXGEN_*`,
 `PB_SIM_*`) and a session-end `data/` cleanup so a plain `pytest` run never
-leaves the working tree dirty.
+leaves the working tree dirty. **That cleanup is `git checkout -- data` plus
+`git clean -fdq -- data/leagues`: it silently reverts any unstaged edit you
+made to a tracked file under `data/`** (stage or commit data edits before
+running tests).
+
+When the full suite isn't needed (a small contained change), run the area's
+test files plus the cross-cutting pins `tests/test_rating_scale_display.py`
+and `tests/test_team_scoped_write_ownership.py`, and the client type check.
+The type check is **not clean on `main`**: `npm run typecheck` (or
+`npx tsc --noEmit -p tsconfig.json`) reports ~26 pre-existing strict-mode
+errors at 8.11.0, so compare against `main` and add none.
 
 ### Iron rules for the test suite
 
@@ -192,9 +238,10 @@ leaves the working tree dirty.
 3. Run with `PYTHONHASHSEED=0` for reproducibility.
 4. A handful of tests are intentionally `xfail`/`skip` with explicit reasons —
    legacy-engine behavior (physics is the shipping path, KPI-gated separately),
-   archived legacy CLIs (need `PB_ALLOW_LEGACY_ENGINE=1`), Windows-only
-   `os.replace`-on-open-file semantics, and the `players_normalized.csv` gap
-   (§7). Don't "fix" these by deleting the reason.
+   archived legacy CLIs (need `PB_ALLOW_LEGACY_ENGINE=1`) and Windows-only
+   `os.replace`-on-open-file semantics. Don't "fix" these by deleting the
+   reason. (The old `players_normalized.csv` xfail is gone: the file was
+   restored.)
 
 Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 (archived legacy engine) and `test_build_exe` (PyInstaller packaging).
@@ -206,9 +253,11 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 - **Versioning (SemVer) via the `VERSION` file.** PATCH for fixes/tests/small
   UX; MINOR for complete user-facing features; MAJOR only with explicit
   confirmation. **Docs-only changes need no bump.** When you bump `VERSION`,
-  match it in the `.iss` installer file.
-- **Release notes:** add entries to the release-notes-draft as you bump versions;
-  `release_notes.md` is the shipped record (`scripts/add_release_note.py`).
+  match `AppVersion` in `packaging/NexGen-BBPro.iss` (the installer is retired
+  but `AGENTS.md` still asks for it, and every release commit does it).
+- **Release notes:** add one entry per version to `release_notes_draft.md`
+  (plain, owner-facing wording; see the 8.x entries). `release_notes.md` has
+  not been updated since 7.2.
 - **Backlog:** add new ideas to `docs/future_work.md`.
 - **New features:** create a tutorial/guide and wire it into the menu.
 - Use `rg` (ripgrep) for searching; PEP8 style.
@@ -219,57 +268,79 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-07-16)
+## 7. Current state — where development was left off (2026-11-04, VERSION 8.11.0)
 
-**Shipped/committed this program (all on `main`, pushed):**
-- **Sprint 2 simulation-realism + CPU-AI features are complete:** platoon
-  lineups (S2-01), modern batting order (S2-02), pitch-count reliever rest
-  (S2-03), tied-game closer usage (S2-04), position-player rest days (S2-05),
-  pitcher handedness/platoon (S2-06), times-through-order batter bonus (S2-07),
-  player-dispersion KPI gate + calibration repair (S2-08), deadline-aware CPU
-  trading (S2-09), CPU-to-CPU trades (S2-10), in-season callups + September
-  expansion (S2-11), pitching-usage KPIs (S2-12), pinch-hitter defensive
-  awareness (S2-13). Each is a row in `docs/deep_review_plan.md` with its hash.
-- **Two pre-existing API bugs fixed:** `/league/history` (imported a deleted
-  PyQt module → ported the loader to `services/league_history.py`) and
-  `/leagues` (was served without auth → added `require_bearer`).
-- **Full test-hygiene pass + the green gate** (§5): ~50 stale/broken tests fixed
-  or removed, cross-file pollution root-caused, `scripts/run_tests_isolated.py`
-  added. Suite is 201/201 green via the gate.
+**Deployed vs. committed.** The live service reported **8.9.0** on
+2026-11-04 (`https://nexgen-bbpro.web.app/meta/app-status`). `main` holds
+8.9.1, 8.10.0 and 8.11.0, committed but **not deployed**, and is 5 commits
+ahead of `origin/main` (not pushed). The three are meant to go out together;
+8.9.1 also settles the 16 negotiations alpha-test's 2027 free-agency window
+left open, which it does only once the league is out of the amateur draft
+(its release note).
 
-**NOT done — explicit pick-up-here list, roughly prioritized:**
+**Live leagues and operations switches.** Two live leagues with human owners,
+`alpha-test` (seven owner clubs) and `stats-test`. Cloud Run env (checked
+2026-11-04): `NEXGEN_GENERATION6_SCALE2=1` (the 8.0.0 switch: each league
+moves to engine generation 6 + the full 1-99 rating scale at its next
+rollover), `NEXGEN_RESPREAD_LEAGUES=alpha-test`, `PB_PARALLEL_GAMES=2`;
+`NEXGEN_GENERATION7` is **unset** (ball flight off). **Never turn the 8.0.0
+switch off once a league plays generation 6** — hold new moves with
+`NEXGEN_NEW_SEASON_ENGINE=5` instead (`docs/rating_scale_switch_runbook.md`).
+Secrets are Secret Manager references: `SENDGRID_API_KEY`,
+`NEXGEN_SCHEDULER_TOKEN`, `NEXGEN_DISCORD_WEBHOOK_URL`.
 
-1. **Run the two deferred acceptance gates before any production deploy.** They
-   were framed as manual gates and hadn't been run (fastapi wasn't installed
-   locally at the time — it is installable now via `requirements-server.txt`):
-   - **S2-10**: 3-season CPU-CPU trade-stability sim (15–40 executed CPU-CPU
-     trades/season, team-win% stddev not growing). See the "Test plan" in
-     `docs/specs/S2-10_cpu_to_cpu_trades.md`.
-   - **S2-11**: season-scale roster-churn audit (promotions/demotions look sane;
-     `validate_roster_state` passes for all teams post-September-revert). See
-     `docs/specs/S2-11_inseason_callups.md`.
-2. **S1-10 — parallel day simulation (NOT started, design ready).** A
-   multiprocessing rewrite of the per-day game loop with a side-effect journal.
-   Implementation-ready spec: `docs/specs/S1-10_parallel_day.md`. Its release
-   gate is **byte-parity** of the three `benchmark_sim_days.py` digests between
-   serial and parallel, and it **changes serial seed behavior** (forces a
-   benchmark re-baseline). High blast radius (touches the core sim write path) —
-   do it in a focused session and lean on the parity harness.
-3. **Restore `data/players_normalized.csv` (the KPI-calibration blocker).** It
-   was deleted in v3.1.17 and never restored. Its absence makes
-   `playbalance/player_generator.py` generate degenerate (all-elite) contact
-   ratings — that's why `test_player_generator.py::
-   test_hitter_contact_speed_distribution_centered` is `xfail`. The normalizer
-   templates (`scripts/normalize_players.py`) have drifted; regenerating naively
-   produces bad calibration. Fixing this properly (regenerate/replace the
-   normalized roster so the generator + CI have a real distribution source) is
-   its own task and is referenced throughout `docs/deep_review_plan.md`.
-4. **(Optional) True single-process test isolation.** Making a *single* `pytest`
-   run green would require redirecting every test's data dir to a per-test tmp
-   and making the reload-heavy modules reload-safe — a real refactor. The
-   per-file gate (§5) sidesteps it reliably; only do this if you want plain
-   `pytest` to be green.
-5. **Nothing is deployed.** All the above is committed + pushed to GitHub only.
+**Most recent releases** (full text: `release_notes_draft.md`):
+- **8.9.0** — free-agent prices re-anchored to the real quality spread, with
+  the player's last three big-league seasons blended in (backlog #66).
+- **8.9.1** — every free-agent negotiation settles inside the bidding window;
+  the window stays open on its last day until none is open.
+- **8.10.0** — a Columns menu on the Roster, Free Agency, Players, Position
+  Players, Pitchers and Lineup tables; every pitch rating; drag-and-drop
+  pitching staff with swap (#69, #68).
+- **8.11.0** — CPU clubs draft by need (`services/draft_board.py`
+  `cpu_plan` / `cpu_choose`, `api/routers/draft.py`); owners with no draft
+  board are picked for the same way (#70).
+
+Earlier 8.x, for orientation: 8.0.0 engine generation 6 + scale 2 + player
+development; 8.1.0 generation 7 (shipped off) and one-club-per-player
+fixes; 8.1.1 postseason stats in their own file; 8.2.0 the dashboard
+Spotlight; 8.4.0 postseason pages; 8.5.x extension talks and service time;
+8.6.x free-agent asking prices, realistic retirements, a Discord draft
+channel; 8.7.x owners' draft boards; 8.8.x free-agent bid standing,
+owner-only notifications, the parallel test runner.
+
+**Open work — pick up here** (`docs/future_work.md` has the detail):
+1. **Deploy 8.9.1–8.11.0** when the owner gives the word (§4, `RELEASE.md`).
+2. **#64 MLB-like salary arbitration** — fully specified, but the owner said
+   to leave today's behaviour alone for now.
+3. **#52 remainder** — CPU free-agent bidding and arbitration still score
+   players on the old flat rating average; their bars are stored per league
+   in `finance_ai_tuning`, so switching needs a matched bar plus a migration.
+   `services/draft_ai.py` is still unused (8.11.0 built need-aware drafting
+   in `draft_board.py` instead): wire it or delete it.
+4. **#51** retune prospect promotion for the shared overall; **#35** pick
+   your team in the league-creation wizard; **#48** an unresolvable
+   `NEXGEN_DATA_ROOT` silently falls back to the repo's `data/`.
+5. **Engine:** turning on generation 7 (`docs/generation7_switch_runbook.md`;
+   park data first, `docs/park_data_generation7_runbook.md`); #55 explicit
+   park picks for older leagues; #57 fast runners in the generator; #58
+   report-only KPI gates to promote.
+6. **Follow-up lists** from each release: #60 (26-man roster), #61
+   (Release 3), #62 (Release 4), #63 (preseason draft), and the dated
+   Release 5 / 6a / 6b / 8.0.0 sections.
+7. **Not started:** #7.3–7.5 owner messaging, chat rooms, forums / trade
+   block; #20 player morale; #26 What-If Lab (deferred); the rest of #24
+   team strategy profiles.
+8. **(Optional) True single-process test isolation.** Making a *single*
+   `pytest` run green would need every test's data dir redirected to a
+   per-test tmp and the reload-heavy modules made reload-safe. The per-file
+   gate (§5) sidesteps it.
+
+**Done since the 2026-07-16 version of this list:** the S2-10 / S2-11
+acceptance gates ran (2026-07-16, `23888ebe9`, `docs/deep_review_plan.md`);
+S1-10 parallel day simulation shipped in 7.2 (`PB_PARALLEL_GAMES`,
+`release_notes.md`); `data/players_normalized.csv` is back (`9173b6e80`);
+the cloud app has been deployed routinely since 7.x.
 
 ---
 
@@ -307,6 +378,21 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 - **Legacy vs physics naming is confusing.** `tests/test_physics.py` tests the
   **legacy** `playbalance.physics`/`GameSimulation`, *not* the shipping
   `physics_sim/` engine.
+- **`save_players` replaces the whole players file**
+  (`services/players_repository.py`). Passing a subset once wiped a
+  1,000-player league; change some players with `update_players`.
+- **The request's league wins over the "active" league.** The `X-League-Id`
+  header binds a per-request ContextVar (`utils/path_utils.set_request_league`);
+  code that creates or switches a league inside a request, or reproduces a
+  cloud bug locally, must set it (with `NEXGEN_DATA_ROOT`) or its writes land
+  in the wrong league.
+- **Keep the Firestore stack pinned** (`requirements-server.txt`:
+  `firebase-admin==7.5.0`, `google-cloud-firestore==2.28.0`, plus the
+  api-core/grpc pins). A newer transport broke every Firestore read, so
+  logins failed.
+- **Every `{team_id}` write must call `require_team_owner`.**
+  `tests/test_team_scoped_write_ownership.py` walks the live router table and
+  fails on any unguarded endpoint.
 
 ---
 
@@ -326,20 +412,32 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 | `desktop/src/lib/api.ts` | Typed frontend API client. |
 | `services/cpu_trade_proposals.py`, `cpu_trade_evaluator.py`, `trade_execution.py`, `team_outlook.py` | CPU trading (Sprint 2). |
 | `services/inseason_callups.py` | Monthly callups + September expansion (Sprint 2). |
+| `api/working_copy.py` | Local working copy of the GCS-mounted league data (pull at start, push after writes). |
+| `utils/path_utils.py` | Data root / league dir resolution, `set_request_league`. |
+| `services/team_ownership.py` | Who owns which club (from `users.txt`). |
+| `services/league_rollover.py`, `services/rating_scale_migration.py` | Season rollover; the 8.0.0 scale 2 conversion. |
+| `physics_sim/engine_generation.py`, `physics_sim/profiles/` | Engine generations and their tuning profiles. |
+| `utils/player_overall.py`, `utils/rating_display.py` | The shared overall; what pages show on scale 1 / scale 2. |
+| `services/fa_window.py`, `services/extension_talks.py` | Offseason free-agency bidding window; ask/minimum negotiation rules. |
+| `services/draft_board.py`, `api/routers/draft.py` | Owners' draft boards and CPU need-aware picks. |
+| `services/discord_notify.py`, `scripts/announce_release.py` | Discord posts (server side; release announcement). |
 | `docs/deep_review_plan.md` | Sprint 0–2 truth doc (status + hashes). |
-| `docs/specs/S1-10_parallel_day.md`, `S2-*.md` | Implementation-ready specs. |
+| `docs/specs/` | Feature specs (`S1-10_parallel_day.md`, `S2-*.md`, `S3-*.md`). |
 | `data/leagues/cbl/data/` | The committed sample league (don't pollute it). |
-| `data/calibration/` | Deterministic calibration roster for KPI runs. |
+| `data/calibration/`, `data/calibration_league/`, `data/calibration_flat/` | Deterministic KPI fixtures. |
 
 ---
 
 ## 10. Suggested first moves for a new agent
 
-1. Read `README.md`, `AGENTS.md`, then this file.
-2. Install `requirements-server.txt` into the venv.
-3. Run the green gate: `python scripts/run_tests_isolated.py` — confirm 201/201.
+1. Read `AGENTS.md`, then this file, then the 8.x entries at the end of
+   `release_notes_draft.md`.
+2. Install `requirements-server.txt` into `.venv` (Python 3.11).
+3. Run the green gate: `python scripts/run_tests_isolated.py -j 12` (~3.5 min)
+   — expect only the five known failures (§5).
 4. Run the KPI harness once (strict, seed 1) to see the engine-vs-MLB gate in
    action and learn the tolerance mindset.
-5. Pick a pick-up item from §7. For anything touching the engine, make the KPI
-   harness (and, for perf, the parity harness) your gate before committing, and
-   record the outcome + hash in `docs/deep_review_plan.md`.
+5. Pick an item from §7. For anything touching the engine, make the KPI
+   harness on seeds 1 and 2 (and, for perf, the parity harness) your gate
+   before committing. Record shipped work in `release_notes_draft.md` and the
+   item's status in `docs/future_work.md`.

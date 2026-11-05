@@ -75,8 +75,7 @@ export function PlayoffsPage() {
             <Trophy className="h-10 w-10 text-amber" />
             <h2 className="font-display text-xl">No playoff data</h2>
             <p className="max-w-sm text-sm text-muted">
-              No ``playoffs_&lt;year&gt;.json`` files have been written yet.
-              Finish a postseason in the legacy app and check back here.
+              The bracket appears here once the playoffs begin.
             </p>
           </CardContent>
         </Card>

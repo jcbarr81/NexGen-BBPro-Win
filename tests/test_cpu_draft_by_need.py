@@ -152,7 +152,7 @@ def test_auto_pick_drafts_by_need_for_any_club_without_a_board(short_at_catcher)
     assert told[-1][2]["why"] == "owner" and told[-1][2]["board"] is False
 
 
-def test_the_commissioner_auto_picking_for_an_owner_without_a_board_tells_him(
+def test_the_commissioner_auto_picking_for_an_owner_without_a_board_tells_the_owner(
     short_at_catcher,
 ):
     state, told, _tmp = short_at_catcher

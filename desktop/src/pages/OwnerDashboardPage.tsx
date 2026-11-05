@@ -163,7 +163,7 @@ export function OwnerDashboardPage() {
               <>
                 <AlertTriangle className="h-5 w-5 text-warning" />
                 <span className="text-sm">
-                  No team is available yet. Create a team in the legacy app or
+                  No team is available yet. Ask your commissioner to assign you one, or
                   switch leagues.
                 </span>
               </>

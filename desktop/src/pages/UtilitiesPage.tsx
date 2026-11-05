@@ -112,7 +112,7 @@ export function UtilitiesPage() {
       const engine = (res.result?.engine as string | undefined) ?? "auto_logo";
       const engineLabel =
         engine === "vertex"
-          ? "Vertex AI Imagen (detailed)"
+          ? "Vertex AI (detailed)"
           : engine === "openai"
             ? "OpenAI gpt-image-1 (detailed)"
             : "auto_logo fallback (simple vector)";
@@ -261,7 +261,7 @@ export function UtilitiesPage() {
             <ActionTile
               icon={<Palette className="h-5 w-5" />}
               title="Detailed Logos (AI)"
-              description="Uses Vertex AI Imagen (cloud) or OpenAI gpt-image-1 (local) with a rich per-team prompt. Falls back to simple vector logos if neither is configured."
+              description="Uses Vertex AI (cloud) or OpenAI gpt-image-1 (local) with a rich per-team prompt. Falls back to simple vector logos if neither is configured."
               pending={activeAction === "logos-openai"}
               progress={progress["logos-openai"]}
               result={results["logos-openai"]}
@@ -663,7 +663,7 @@ function AiStatusCard() {
             <Palette className="h-4 w-4 text-amber" /> AI Renderer Status
           </CardTitle>
           <CardDescription>
-            Detailed logos/avatars use Google Vertex AI Imagen in the cloud
+            Detailed logos/avatars use Google Vertex AI (Gemini image model) in the cloud
             (no key needed) or OpenAI gpt-image-1 locally. If neither is ready,
             the "Detailed Logos" button falls back to the simple vector renderer.
           </CardDescription>
@@ -691,7 +691,7 @@ function AiStatusCard() {
             ) : (
               <AlertTriangle className="h-3.5 w-3.5 text-muted" />
             )}
-            <span className="font-medium">Vertex AI Imagen</span>
+            <span className="font-medium">Vertex AI</span>
             <span className="text-muted">
               {vertex?.message ?? "Status unavailable."}
             </span>

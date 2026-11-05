@@ -3,8 +3,10 @@
 This note captures high-level enhancements identified during the latest review so
 they are easy to revisit when planning new milestones.
 
-> **Status (2026-10-25, VERSION 8.4.3):** this file lists open work only. What
-> shipped is in `release_notes_draft.md` / `release_notes.md` and `git log`;
+> **Status (2026-11-04, VERSION 8.11.0):** this file lists open work. Items
+> that shipped keep a **SHIPPED x.y.z** marker with their finding and plan for
+> the design history (#52a, #65-#71 and others). What shipped is in
+> `release_notes_draft.md` and `git log` (`release_notes.md` stops at 7.2);
 > check the code before trusting a status here. The product is the cloud web app
 > (FastAPI `api/` + `services/`, React `desktop/src/`, Firebase / Cloud Run);
 > the PyQt `ui/` app and the Windows installer are retired. Finance follow-ons:
@@ -197,14 +199,18 @@ to yearly promotion, then switch to the shared score.
   same stored-tuning problem; do it with #64.
 - `services/draft_ai.py` (a need-aware CPU draft score) is not called
   anywhere in production: wire it into the auto-pick (on the shared
-  overall) or delete it.
+  overall) or delete it. (8.11.0 / #70 built need-aware CPU drafting in
+  `services/draft_board.py` instead, so this file is now only a delete
+  candidate.)
 - **The auto-pick leans to pitchers.** The draft-pool generator makes
   pitcher prospects better than hitters (current overall ~42 against ~37.5,
   potential 1-5 points higher, in all three live pools), so ranking by the
   shared overall takes 20-21 pitchers in the top 30 (alpha-test 2027: 9 of
   the top 10; the old flat mean took 15-21). Ranking by potential or a
   blend does not fix it (11-21). Either balance the generator or pick by
-  team need (the `draft_ai` item above).
+  team need (the `draft_ai` item above). **Partly addressed 8.11.0 (#70):**
+  CPU clubs and board-less owners now add a need bonus and cap pitchers at
+  three quarters of the rounds; the generator imbalance itself is unchanged.
 
 ## 52a. Retirement bars retire almost everyone past an age — SHIPPED 8.6.5
 
@@ -318,6 +324,7 @@ count, so an RNG-reshuffling change can trip it -- re-check seeds 1 and 2.
   against FanGraphs / Baseball-Reference.
 - `tests/conftest.py` teardown runs `git checkout -- data`, silently reverting
   unstaged edits to tracked data files; note it in CODEX_HANDOFF section 5.
+  (Noted there 2026-11-04; the teardown itself is unchanged.)
 
 ## 60. 26-man roster follow-ups (7.46.0)
 
@@ -769,7 +776,7 @@ leaves, on purpose or because it was out of scope:
 
 ## Player development after the aging pause (7.51.2)
 
-- **Training camp can still exceed potential.** `playbalance/player_development._boost_attribute` resets its room to `99 - current` once a rating reaches its potential, so it keeps adding up to 5 points a spring. Mild in practice (Contact sd 5.1 to 7.4 over five springs on a stats-test copy), but it belongs in the same rewrite.
+- **Training camp can still exceed potential.** `playbalance/player_development._boost_attribute` resets its room to `99 - current` once a rating reaches its potential, so it keeps adding up to 5 points a spring. Mild in practice (Contact sd 5.1 to 7.4 over five springs on a stats-test copy), but it belongs in the same rewrite. (Since 8.0.0 spring camp adds no points to a league on rating scale 2, so this affects scale 1 leagues only.)
 
 ## Release 6a tooling: follow-ups (2026-10-13)
 
@@ -1465,7 +1472,9 @@ two of its games plays serially under `PB_PARALLEL_GAMES`. Left open:
 - The legacy `GameSimulation` path (disabled in production by
   `legacy_guard`) still adds a playoff game into the season totals.
 - Archive with the season at rollover like the regular-season stats; include
-  in the almanac / exports.
+  in the almanac / exports. (The rollover archive is done: 8.1.1 saves
+  `postseason_stats.json` with the season, `services/league_rollover.py`.
+  The almanac / exports part is still open.)
 
 ## 64. Make salary arbitration work like real baseball (owner request, 2026-10-26)
 
