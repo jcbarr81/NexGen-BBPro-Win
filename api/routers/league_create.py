@@ -505,6 +505,54 @@ def create_league_wizard(
     return _build_league(payload)
 
 
+def _team_pick(payload: Dict[str, Any]) -> "tuple[str, str] | None":
+    """The commissioner's chosen club as (city, name), checked against the
+    wizard's divisions; ``None`` when no club was chosen."""
+
+    raw = payload.get("team")
+    if not isinstance(raw, dict):
+        return None
+    city = str(raw.get("city", "")).strip()
+    name = str(raw.get("name", "")).strip()
+    if not (city or name):
+        return None
+    divisions = payload.get("divisions")
+    teams = [
+        (str(e.get("city", "")).strip(), str(e.get("name", "")).strip())
+        for entries in (divisions.values() if isinstance(divisions, dict) else [])
+        if isinstance(entries, list)
+        for e in entries
+        if isinstance(e, dict)
+    ]
+    if (city, name) not in teams:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Your team {city} {name} is not one of the league's teams.",
+        )
+    return city, name
+
+
+def _team_id_for_pick(league_id: str, pick: "tuple[str, str]") -> str:
+    """The team id the new league gave the chosen club ('' if not found)."""
+
+    from utils.team_loader import load_teams
+
+    data_dir = league_registry.get_league_data_dir(league_id, create=False)
+    if not data_dir:
+        return ""
+    try:
+        teams = load_teams(data_dir / "teams.csv")
+    except Exception:
+        logging.getLogger("nexgen.league_create").exception(
+            "could not read the new league's teams (%s)", league_id
+        )
+        return ""
+    for team in teams:
+        if (str(team.city).strip(), str(team.name).strip()) == pick:
+            return str(team.team_id)
+    return ""
+
+
 @router.post("/create-as-commissioner", status_code=status.HTTP_201_CREATED)
 def create_league_as_commissioner(
     payload: Dict[str, Any] = Body(...),
@@ -537,13 +585,26 @@ def create_league_as_commissioner(
         else "private"
     )
     team_id = str(payload.get("team_id", "")).strip()
+    # The wizard names the commissioner's own club by city and name (#35):
+    # team ids are only assigned when the league is built. Check the pick
+    # against the wizard's teams first, so a bad one can't leave a league
+    # built but never registered.
+    pick = _team_pick(payload)
 
     result = _build_league({**payload, "mode": "owner_league"})
     league_id = result["league_id"]
 
     token = path_utils.set_request_league(league_id)
     try:
-        if team_id:
+        if pick is not None:
+            team_id = _team_id_for_pick(league_id, pick)
+            if not team_id:
+                result.setdefault("warnings", []).append(
+                    f"Your team {pick[0]} {pick[1]} could not be found in the new "
+                    "league, so you have no club yet: claim one on the Members "
+                    "& Email page."
+                )
+        elif team_id:
             data_dir = league_registry.get_league_data_dir(league_id, create=False)
             valid = (
                 {t.team_id for t in load_teams(data_dir / "teams.csv")}

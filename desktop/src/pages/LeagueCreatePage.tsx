@@ -121,6 +121,23 @@ interface WizardState {
   splitLeagues: boolean;
   leagueNames: string[];
   divisionLeague: Record<string, number>;
+  // The commissioner's own club (#35), as "city|name" ("" = none). Team ids
+  // are only assigned when the league is built, so the server matches it.
+  ownTeam: string;
+}
+
+/** Every team the wizard will create, with its division and pick key. */
+function wizardTeams(divisions: Divisions) {
+  return Object.entries(divisions).flatMap(([division, teams]) =>
+    teams
+      .filter((t) => t.city.trim() && t.name.trim())
+      .map((t) => ({
+        key: `${t.city.trim()}|${t.name.trim()}`,
+        city: t.city.trim(),
+        name: t.name.trim(),
+        division,
+      })),
+  );
 }
 
 const INITIAL: WizardState = {
@@ -165,6 +182,7 @@ const INITIAL: WizardState = {
   splitLeagues: false,
   leagueNames: ["League 1", "League 2"],
   divisionLeague: {},
+  ownTeam: "",
 };
 
 /**
@@ -378,9 +396,14 @@ export function LeagueCreatePage() {
         // Cloud: register the league in the control plane with the caller as
         // commissioner. Server forces owner_league mode. Starts private; the
         // commissioner can open it up / generate invites afterwards.
+        // A pick whose team was renamed or removed since is dropped.
+        const own = wizardTeams(state.divisions).find(
+          (t) => t.key === state.ownTeam,
+        );
         const created = await api.createLeagueAsCommissioner({
           ...createPayload,
           visibility: state.commissionerVisibility,
+          team: own ? { city: own.city, name: own.name } : undefined,
         });
         showCreateWarnings(created.warnings);
         navigate("/my-leagues", { replace: true });
@@ -439,6 +462,8 @@ export function LeagueCreatePage() {
         {step === 5 && (
           <ReviewStep
             state={state}
+            onPatch={patch}
+            pickTeam={isCommissioner}
             presets={presets.data}
             creating={creating}
             error={createError}
@@ -1918,14 +1943,52 @@ function Checkbox({
 
 // ---------------------------------------------------------------------------
 
+/** The commissioner's own club (#35): run one, or run the league without. */
+function OwnTeamPicker({
+  state,
+  onPatch,
+}: {
+  state: WizardState;
+  onPatch: (update: Partial<WizardState>) => void;
+}) {
+  const teams = wizardTeams(state.divisions);
+  const value = teams.some((t) => t.key === state.ownTeam) ? state.ownTeam : "";
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border bg-surfaceAlt/40 p-3">
+      <Label htmlFor="own-team">Your team</Label>
+      <select
+        id="own-team"
+        value={value}
+        onChange={(e) => onPatch({ ownTeam: e.target.value })}
+        className="h-10 w-full rounded-lg border border-border bg-canvas/60 px-3 text-sm focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+      >
+        <option value="">None: I'll run the league without a club</option>
+        {teams.map((t) => (
+          <option key={t.key} value={t.key}>
+            {t.city} {t.name} ({t.division})
+          </option>
+        ))}
+      </select>
+      <p className="text-xs text-muted">
+        You own this club as well as running the league. You can also claim
+        or change one later on the Members &amp; Email page.
+      </p>
+    </div>
+  );
+}
+
 function ReviewStep({
   state,
+  onPatch,
+  pickTeam,
   presets,
   creating,
   error,
   onCreate,
 }: {
   state: WizardState;
+  onPatch: (update: Partial<WizardState>) => void;
+  pickTeam: boolean;
   presets: Awaited<ReturnType<typeof api.leaguePresets>> | undefined;
   creating: boolean;
   error: string | null;
@@ -1969,6 +2032,7 @@ function ReviewStep({
           label="Teams"
           value={`${total} across ${Object.keys(state.divisions).length} divisions`}
         />
+        {pickTeam && <OwnTeamPicker state={state} onPatch={onPatch} />}
         {rule && <ReviewRow label="Rule preset" value={rule.name} />}
         {template && (
           <ReviewRow

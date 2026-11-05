@@ -21,6 +21,7 @@ import {
   HeartPulse,
   ListChecks,
   Loader2,
+  Mail,
   RefreshCw,
   Save,
   Settings2,
@@ -998,6 +999,12 @@ function QuickAccessGrid() {
       label: "Command Center",
       description: "League-wide attention cards",
       Icon: Command,
+    },
+    {
+      to: "/league-members",
+      label: "Members & Email",
+      description: "Invites + email the owners",
+      Icon: Mail,
     },
     {
       to: "/finance-queue",

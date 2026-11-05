@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Lock,
+  Mail,
   Package,
   Palette,
   Play,
@@ -243,6 +245,29 @@ export function UtilitiesPage() {
         />
 
         {isAdmin && <AiStatusCard />}
+
+        {isAdmin && (
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-amber" /> Members &amp; email
+                </CardTitle>
+                <CardDescription>
+                  Invite owners, email the whole league, handle join requests
+                  and assign teams.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Link to="/league-members">
+                <Button size="sm" variant="outline">
+                  <Mail className="h-4 w-4" /> Open Members &amp; Email
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

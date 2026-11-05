@@ -155,7 +155,7 @@ export const ROUTE_INDEX: RouteMeta[] = [
 
   // Admin
   { path: "/commissioner", label: "Commissioner", description: "Trade / injury / finance / strategy", Icon: Gavel, hub: "admin", adminOnly: true },
-  { path: "/league-members", label: "Members", description: "Invites, join requests & team assignments", Icon: Users, hub: "admin", adminOnly: true },
+  { path: "/league-members", label: "Members & Email", description: "Invites, email the owners, join requests & team assignments", Icon: Users, hub: "admin", adminOnly: true },
   { path: "/command-center", label: "Command Center", description: "League-wide attention cards", Icon: Command, hub: "admin", adminOnly: true },
   { path: "/finance-queue", label: "Finance Queue", description: "Pending GM finance decisions", Icon: ListChecks, hub: "admin", adminOnly: true, capability: "finance" },
   { path: "/exhibition", label: "Exhibition Game", description: "One-off what-if simulation", Icon: Swords, hub: "admin", adminOnly: true },

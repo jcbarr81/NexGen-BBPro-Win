@@ -8,6 +8,7 @@ import shutil
 import sys
 import stat
 import json
+import logging
 
 
 # Cache of resolved active-league data dirs, keyed by (root_cache_key, league_id).
@@ -55,6 +56,10 @@ _SEED_EXCLUDE_FILES = frozenset(
         "avatar_recolor_queue.json",
     }
 )
+
+
+class DataRootError(RuntimeError):
+    """The configured data root (NEXGEN_DATA_ROOT) can't be used."""
 
 
 class ActivePath:
@@ -172,8 +177,25 @@ def _clear_readonly_tree(path: Path) -> None:
     _clear_readonly(path)
 
 
+def _contains(folder: Path, target: Path) -> bool:
+    """True when *target* is *folder* or lies inside it."""
+
+    try:
+        target.resolve().relative_to(folder.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _same_dir(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
 def _seed_data_dir(source: Path, target: Path) -> None:
-    if not source.exists():
+    if not source.exists() or _same_dir(source, target):
         return
     try:
         needs_full_seed = any(
@@ -188,6 +210,11 @@ def _seed_data_dir(source: Path, target: Path) -> None:
                 continue
             dest = target / item.name
             if dest.exists():
+                continue
+            if item.is_dir() and _contains(item, target):
+                # The target lives inside this folder (a league dir under
+                # data/leagues seeded from data/): copying it would copy the
+                # tree into itself (backlog #48).
                 continue
             if item.is_dir():
                 shutil.copytree(item, dest)
@@ -221,17 +248,35 @@ def _resolve_data_root() -> Path:
         leagues_root = target / "leagues"
         return not registry.exists() and not leagues_root.exists()
 
-    override = os.environ.get("NEXGEN_DATA_ROOT") or os.environ.get("NEXGEN_DATA_DIR")
+    override = (
+        os.environ.get("NEXGEN_DATA_ROOT") or os.environ.get("NEXGEN_DATA_DIR") or ""
+    ).strip()
     if override:
         candidate = Path(override)
+        # A configured root that can't be used is an error, never a quiet
+        # fall back to the repository's data/ (backlog #48): a typo or a
+        # missing mount would otherwise read and write the wrong data.
         try:
             candidate.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise DataRootError(
+                f"The configured data root {override!r} (NEXGEN_DATA_ROOT / "
+                f"NEXGEN_DATA_DIR) can't be used: {exc}"
+            ) from exc
+        if not candidate.is_dir():
+            raise DataRootError(
+                f"The configured data root {override!r} is not a folder."
+            )
+        # Seeding is best-effort: the root itself is usable.
+        try:
             if _should_seed_root(candidate):
                 _seed_data_dir(base_data, candidate)
             _clear_readonly_tree(candidate)
-            return candidate
         except OSError:
-            pass
+            logging.getLogger(__name__).warning(
+                "could not seed the data root %s", candidate, exc_info=True
+            )
+        return candidate
 
     if not running_frozen and _can_write_dir(base_data):
         return base_data

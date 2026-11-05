@@ -52,7 +52,7 @@ your role and team. From here you can:
 - **Create a league** *(commissioners)* — opens the league wizard (below).
 - **Find a league** — the discovery screen to join one.
 - **Enter** a league — jumps into its Dashboard.
-- **Manage** a league *(commissioners)* — the members panel.
+- **Manage** a league *(commissioners)* — the Members & Email page.
 
 You can return to this screen anytime via the **My Leagues** button in the
 header.
@@ -67,6 +67,10 @@ league's **visibility**:
 - **Private** — hidden from discovery; only joinable with an invite code.
 - **Public** — listed in *Find a league*; players without a code can request to
   join and you approve them.
+
+On the Review step, **Your team** picks the club you will run yourself, or
+*None* to run the league without one (you can claim or change a club later on
+the Members & Email page).
 
 On submit the league is created and appears in My Leagues.
 
@@ -119,7 +123,7 @@ The sidebar has a handful of top-level destinations plus a pinned
   Playoffs, History, Hall of Fame, Awards, All-Star Game, Records, Ballparks,
   Contracts.
 - **Transactions** *(hub)* — Free Agency, Trades, Draft, Activity.
-- **Admin** *(hub, commissioner-only)* — Commissioner, Members, Command
+- **Admin** *(hub, commissioner-only)* — Commissioner, Members & Email, Command
   Center, Finance Queue, Exhibition Game, Offseason Flow, Reassign Players,
   Finance Stability, League Admin, Physics Tuning, New League, Users,
   Utilities.
@@ -612,7 +616,9 @@ and are hidden from owners.
   explains what the selected level changes — + CPU finance-AI knobs),
   **Scouting** (fog-of-war + pacing), and league-default **strategy /
   auto-reassign** with a per-team override table.
-- **Members** — invites, join requests, and team assignment (see
+- **Members & Email** — invites, emailing the league's owners, join requests
+  and team assignment; also linked from the Commissioner page's quick links
+  and from **Utilities** (see
   [Accounts, leagues & membership](#accounts-leagues--membership)).
 - **Command Center** — league-wide attention dashboard (injuries, pending
   approvals, roster conflicts, deadlines, finance risks).
@@ -760,4 +766,4 @@ items and re-save — the server rejects invalid lineups/rosters/trades.
 
 **I'm a commissioner but the Dashboard shows "Claim your team."** That's
 expected if you haven't taken a team yet — claim one, or skip to run the league
-without a team. You can change this later from the Members panel.
+without a team. You can change this later from the Members & Email page.

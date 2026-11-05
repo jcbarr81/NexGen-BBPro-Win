@@ -123,13 +123,18 @@ land before channel-specific features.
 - [ ] **V5.4-10 Highlight recap mode (key plays + summary presentation)** (Effort: M, Risk: Medium, Depends: V5.4-08)
 - [ ] **V5.4-11 Performance guardrails for What-If + recap generation** (Effort: M, Risk: High, Depends: V5.4-03, V5.4-10, Deferred pending What-If feedback)
 - [ ] **V5.4-12 Release soak tests + deterministic replay sign-off** (Effort: M, Risk: High, Depends: V5.4-04..V5.4-11)
-## 35. Pick your team in the league-creation wizard
+## 35. Pick your team in the league-creation wizard — SHIPPED 8.11.1
 - The cloud create endpoint accepts a `team_id`
   (`api/routers/league_create.py`), but the wizard never sends one
   (`LeagueCreatePage.tsx`) and lands on My Leagues; a commissioner who
   wants a club has to claim one on the Members page. Offer "pick your
   team" in the wizard.
-- **Status:** Open.
+- **Status:** SHIPPED 8.11.1. The Review step has a **Your team** choice (or
+  *None*); the wizard sends the club's city and name (`team`), since ids are
+  assigned only when the league is built, and `create-as-commissioner`
+  checks it against the wizard's teams before building and resolves it to
+  the new team id (`_team_pick` / `_team_id_for_pick`). Tests:
+  `tests/test_league_create_pick_team.py`.
 
 ## CPU-CPU trade volume tuning (optional)
 - **Context:** The S2-10 acceptance gate (2026-07-16) fixed the CPU-CPU lane from
@@ -153,7 +158,13 @@ _Added 2026-10-02 from owner feedback (El_Jayel). Full plan: `docs/specs/S3-powe
 > power spread for new leagues (`docs/specs/S3-power-calibration.md`,
 > "Deferred: Phase 3").
 
-## 48. Data-root fallback can write into the repo's data/ folder
+## 48. Data-root fallback can write into the repo's data/ folder — SHIPPED 8.11.1
+
+Shipped 8.11.1: a configured root that can't be created (or isn't a folder)
+raises `DataRootError` naming it, instead of falling back; a seed-copy failure
+stays a logged warning; `_seed_data_dir` skips any folder that contains the
+target and does nothing when source and target are the same folder. Tests:
+`tests/test_data_root_safety.py`.
 
 Found during the H9 hotfix verification (2026-10-06): when `NEXGEN_DATA_ROOT`
 points somewhere that can't be resolved (a typo, a missing folder),
