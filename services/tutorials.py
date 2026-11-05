@@ -444,6 +444,11 @@ TUTORIALS: List[Tutorial] = [
                 "<p>The <b>My picks</b> card lists every player your team has taken, with a position strip — C, 1B, 2B, 3B, SS, LF, CF, RF and P — counting how many of each you have drafted. Empty positions are greyed out, so you can see what you still need before you make your next pick. Use the team picker on the card to look at any other team's haul; it appears on the History tab too.</p>",
             ),
             TutorialStep(
+                "How CPU clubs draft",
+                "<p>A CPU club takes the best player available, with an eye on its own organization (every level counted). A position where it has half the league's average or fewer counts a little extra until it drafts one, a bit more when it has nobody there at all, so a club without a catcher will take a catcher who is close to the best player left, though not one far down the class. No position piles up in one draft: a hitting position at most 2 picks in a 4-round draft (3 in 10), pitchers at most three quarters of the rounds, one fewer where the club is already deep.</p>"
+                "<p>An owner's club with no draft board still gets the best player available when a pick is made for it; a <b>draft board</b> is how an owner sets his own needs and limits.</p>",
+            ),
+            TutorialStep(
                 "The pick clock",
                 "<p>When it's your team's turn you'll get a post in the league's Discord channel naming the round, the pick and your deadline (shown in your own local time), and the draft page shows a live countdown. If the deadline passes without a pick, your <b>draft board</b> picks for you (see the Draft Board guide); with no board, the CPU takes the best available player. Either way the draft moves on to the next owner.</p>"
                 "<p>The commissioner sets the clock length under <b>Admin → Draft configuration</b>. At <b>0</b> there is no deadline: the draft waits for each owner and never advances on its own.</p>",

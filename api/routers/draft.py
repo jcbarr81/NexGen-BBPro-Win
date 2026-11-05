@@ -826,6 +826,100 @@ def _best_available(year: int, state: Dict[str, Any]) -> Optional[Dict[str, Any]
     return candidates[0]
 
 
+OrgDepth = Tuple[Dict[str, Dict[str, int]], Dict[str, float]]
+_UNREAD = object()  # auto_advance: organization depth not read yet
+
+
+def _org_depth(year: int, state: Dict[str, Any]) -> Optional[OrgDepth]:
+    """How many players each club in the draft holds at each position, at
+    every level, and the league's average (backlog #70). This year's draft
+    class is left out (its picks are on the rosters already, and the CPU
+    board counts them itself), so the numbers hold for the whole draft and
+    one read serves a run of picks. ``None`` when it can't be read: the CPU
+    then takes the best player available, as before.
+
+    The roster files are read directly: ``load_roster`` builds and saves a
+    placeholder roster for a club without a file."""
+
+    # Keyed by the upper-cased id; the file is opened by the id as the draft
+    # order spells it (the cloud's file system is case-sensitive).
+    teams = {
+        str(t).strip().upper(): str(t).strip()
+        for t in state.get("order") or [] if str(t).strip()
+    }
+    if not teams:
+        return None
+    try:
+        roster_dir = get_data_dir() / "rosters"
+        class_ids = set(_prospect_lookup(year))
+        positions: Dict[str, Optional[str]] = {}
+        for player in load_players_from_csv("data/players.csv"):
+            pid = str(getattr(player, "player_id", "") or "")
+            if pid:
+                positions[pid] = draft_board.org_position(
+                    {
+                        "primary_position": getattr(player, "primary_position", ""),
+                        "is_pitcher": bool(getattr(player, "is_pitcher", False)),
+                    }
+                )
+        depth: Dict[str, Dict[str, int]] = {}
+        for team, spelled in sorted(teams.items()):
+            counts: Dict[str, int] = {}
+            path = roster_dir / f"{spelled}.csv"
+            if path.exists():
+                with path.open(newline="", encoding="utf-8-sig") as fh:
+                    for row in csv.reader(fh):
+                        pid = row[0].strip() if row else ""
+                        if not pid or pid in class_ids:
+                            continue
+                        pos = positions.get(pid)
+                        if pos:
+                            counts[pos] = counts.get(pos, 0) + 1
+            depth[team] = counts
+    except Exception:
+        logging.getLogger("nexgen.draft").exception("draft: could not read organization depth")
+        return None
+    if not any(depth.values()):
+        return None
+    average = {
+        pos: sum(d.get(pos, 0) for d in depth.values()) / len(depth)
+        for pos in draft_board.CPU_POSITIONS
+    }
+    return depth, average
+
+
+def _cpu_pick(
+    year: int,
+    state: Dict[str, Any],
+    team_id: str,
+    depth: Optional[OrgDepth],
+) -> Optional[Dict[str, Any]]:
+    """The prospect a CPU club takes (backlog #70): the best player
+    available, weighed by what its organization lacks
+    (``draft_board.cpu_plan`` / ``cpu_choose``), so it fills a position it
+    has nobody at and doesn't stack one position in a draft. Best available
+    when the depth couldn't be read."""
+
+    by_id = _prospect_lookup(year)
+    if depth is None or not by_id:
+        return _best_available(year, state)
+    team = str(team_id or "").strip().upper()
+    plan = draft_board.cpu_plan(
+        depth=depth[0].get(team, {}),
+        league_average=depth[1],
+        rounds=_load_settings_rounds(),
+    )
+    pid = draft_board.cpu_choose(
+        plan,
+        pool=list(by_id.values()),
+        taken=_selected_ids(state),
+        drafted=_drafted_by(state, team, by_id),
+    )
+    if not pid:
+        return None
+    return by_id.get(pid) or {"player_id": pid}
+
+
 def _announce_picks(year: int, picks: List[Dict[str, Any]], *, draft_complete: bool) -> None:
     """Post ``picks`` (``_do_pick`` results) to the league's draft channel on
     Discord (8.6.6). Best-effort: the picks are already made and saved."""
@@ -1156,7 +1250,15 @@ def auto_pick(
         )
         if result is not None:
             return result
-    best = _best_available(year, state)
+    # A CPU club drafts by need (#70); an owner without a board still gets
+    # the best player available.
+    from services.team_ownership import human_owned_team_ids_strict
+
+    owners = human_owned_team_ids_strict()
+    if owners is not None and team_on_clock.strip().upper() not in owners:
+        best = _cpu_pick(year, state, team_on_clock, _org_depth(year, state))
+    else:
+        best = _best_available(year, state)
     if not best:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1269,6 +1371,7 @@ def auto_advance(
     starting_round = int(state.get("round", 1) or 1)
 
     picks_made: List[Dict[str, Any]] = []
+    cpu_depth: Any = _UNREAD
     cap = 2000
     # Why the loop stopped, so the caller never sees an unexplained 0-pick run.
     stopped_reason = "reached_cap"
@@ -1326,7 +1429,11 @@ def auto_advance(
             picks_made.append(result)
             continue
 
-        best = _best_available(year, state)
+        # A CPU club drafts by need (#70). Organization depth is read once
+        # per run: the class is left out of it, so it holds for every pick.
+        if cpu_depth is _UNREAD:
+            cpu_depth = _org_depth(year, state)
+        best = _cpu_pick(year, state, on_clock, cpu_depth)
         if not best:
             stopped_reason = "pool_exhausted"
             break

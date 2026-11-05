@@ -76,9 +76,10 @@ PINNED_SCALE_1 = {
 # free agents decide?" step; for 8.8.1: that step's offer-dialog sentence;
 # for 8.9.0: its "What he asks for" paragraph; for 8.10.0: the Roster
 # tutorial's "Choose your columns" step and the Lineup tutorial's
-# drag-and-swap pitching staff sentence).
+# drag-and-swap pitching staff sentence; for 8.11.0: the Draft tutorial's
+# "How CPU clubs draft" step).
 PINNED_SCALE_1_TUTORIALS = (
-    "f431bde60954a0b5b35a574a0fa3dac6f654b172fb164399d00993504c8cab32"
+    "7dd89934ab481d41aa0bf21eb0fb5432740c44619c0b1c2789a82da256911857"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

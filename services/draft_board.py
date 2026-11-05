@@ -46,11 +46,14 @@ __all__ = [
     "POSITION_GROUPS",
     "board_path",
     "choose",
+    "cpu_choose",
+    "cpu_plan",
     "default_board",
     "describe_pick",
     "has_board",
     "load_board",
     "normalize_board",
+    "org_position",
     "position_groups_of",
     "potential_score",
     "prospect_score",
@@ -571,3 +574,118 @@ def choose(
 
 def describe_pick(prospect: Optional[Mapping[str, Any]], pid: str) -> str:
     return _with_position(prospect, pid)
+
+
+# ---------------------------------------------------------------------------
+# CPU clubs (backlog #70, 8.11.0).
+#
+# A CPU club used to take the best player left by overall, whatever its
+# organization held: in alpha-test's 2027 draft BOS, with no catcher at any
+# level, took two pitchers, a shortstop and a second baseman while fifteen
+# catchers were in the class. It now weighs its organization against the
+# league's: the best player available still decides, but a position the club
+# is thin at counts a little extra until it has drafted one, and no position
+# piles up in one draft. A hard "must take one by round N" (an owner's need)
+# was tried and dropped: in a class with four first basemen it had a club
+# reach from the 31st-best prospect to the 88th.
+
+# The positions a CPU club reasons about (one each; DH counts toward none).
+CPU_POSITIONS = ("P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF")
+# Thin: at most this share of the league's average at the position.
+THIN_SHARE = 0.5
+# Deep: at least this share of the league's average and two players over it.
+DEEP_SHARE = 1.5
+# What a need is worth, in shared-overall points (mid-class prospects sit
+# about 0.15 apart, so ~3 points reaches some 15-20 places; no further).
+NEED_BONUS_NONE = 3.0  # nobody at all at the position
+NEED_BONUS_THIN = 2.0
+
+
+def org_position(player: Mapping[str, Any]) -> Optional[str]:
+    """The one CPU position ``player`` counts at (None for a DH)."""
+
+    groups = position_groups_of(player)
+    if "P" in groups:
+        return "P"
+    single = [key for key in CPU_POSITIONS if key in groups]
+    return single[0] if single else None
+
+
+def cpu_plan(
+    *,
+    depth: Mapping[str, int],
+    league_average: Mapping[str, float],
+    rounds: int,
+) -> Dict[str, Dict[str, float]]:
+    """How a CPU club drafts: ``{"limits": {pos: n}, "needs": {pos: bonus}}``.
+
+    ``depth`` is how many players the club's organization holds at each
+    position (this draft's class left out: ``cpu_choose`` counts this
+    draft's picks itself), ``league_average`` the same averaged over every
+    club in the draft.
+
+    * **Limits**, counted over this draft: a hitting position at most
+      ``max(1, rounds // 4) + 1`` (2 in a 4-round draft, 3 in 10), pitchers
+      at most three quarters of the rounds; one fewer at a position the club
+      is deep at (half the rounds for pitchers). The first pick is never
+      limited.
+    * **Needs**: a position the club is thin at (half the league's average
+      or less) is worth ``NEED_BONUS_THIN`` extra points until it drafts
+      one, ``NEED_BONUS_NONE`` when it has nobody there at all.
+    """
+
+    rounds = max(1, int(rounds or 1))
+    hitter_limit = max(1, rounds // 4) + 1
+    pitcher_limit = max(1, -(-3 * rounds // 4))
+    limits: Dict[str, float] = {}
+    needs: Dict[str, float] = {}
+    for pos in CPU_POSITIONS:
+        have = int(depth.get(pos, 0) or 0)
+        avg = float(league_average.get(pos, 0.0) or 0.0)
+        deep = avg > 0 and have >= avg * DEEP_SHARE and have >= avg + 2
+        if pos == "P":
+            limits[pos] = max(1, -(-rounds // 2)) if deep else pitcher_limit
+        else:
+            limits[pos] = max(1, hitter_limit - 1) if deep else hitter_limit
+        if avg > 0 and have <= avg * THIN_SHARE:
+            needs[pos] = NEED_BONUS_NONE if have == 0 else NEED_BONUS_THIN
+    return {"limits": limits, "needs": needs}
+
+
+def cpu_choose(
+    plan: Mapping[str, Mapping[str, float]],
+    *,
+    pool: Sequence[Mapping[str, Any]],
+    taken: Set[str],
+    drafted: Sequence[Mapping[str, Any]],
+) -> Optional[str]:
+    """The prospect a CPU club takes: the best overall left, plus its need
+    bonus at a thin position it hasn't drafted yet, among the positions not
+    at their limit (every position, when all of them are). ``None`` only
+    when nobody is left."""
+
+    available = [
+        p for p in pool
+        if str(p.get("player_id") or "") and str(p.get("player_id") or "") not in taken
+    ]
+    if not available:
+        return None
+    counts: Dict[str, int] = {}
+    for prospect in drafted:
+        pos = org_position(prospect)
+        if pos:
+            counts[pos] = counts.get(pos, 0) + 1
+    limits = plan.get("limits") or {}
+    needs = plan.get("needs") or {}
+
+    def _open(prospect: Mapping[str, Any]) -> bool:
+        pos = org_position(prospect)
+        return pos is None or counts.get(pos, 0) < int(limits.get(pos, 99))
+
+    def _value(prospect: Mapping[str, Any]) -> tuple:
+        pos = org_position(prospect)
+        bonus = float(needs.get(pos, 0.0)) if pos and not counts.get(pos) else 0.0
+        return (prospect_score(prospect) + bonus, str(prospect.get("player_id") or ""))
+
+    within = [p for p in available if _open(p)] or available
+    return str(max(within, key=_value).get("player_id") or "")

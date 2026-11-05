@@ -802,8 +802,8 @@ function DraftControlsPanel({
             disabled={!canActForClock || anyPending}
             title={
               actingForSomeoneElse
-                ? `Take the best available player for ${onClockTeamId} — use this to move past an owner who isn't responding.`
-                : "Auto-pick best available for the team on the clock"
+                ? `Make the pick for ${onClockTeamId}: its draft board's pick, or the best available player — use this to move past an owner who isn't responding.`
+                : "Auto-pick for the team on the clock (a CPU club drafts by need)"
             }
           >
             {autoPickMut.isPending ? (

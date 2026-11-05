@@ -1705,6 +1705,8 @@ the profile. Medium. Until then, point owners to the Pitchers page.
 
 ## 70. CPU clubs draft by need (follow-up to draft boards, 8.7.0)
 
+**SHIPPED 8.11.0.** Not a board with hard needs: a forced "one 1B by round 2" had OKL reach from the 31st-best prospect to the 88th in a class with four first basemen. `draft_board.cpu_plan` / `cpu_choose` instead add 2 points (3 with nobody there) to a position the organization holds at half the league's average or fewer, until one is drafted, and cap each position per draft (hitters `rounds//4 + 1`, pitchers 3/4 of the rounds, one fewer where deep). Organization depth (`api/routers/draft.py` `_org_depth`) reads the roster files directly, class left out, once per auto-advance run; used by auto-advance's CPU branch and by Auto-pick for a CPU club. alpha-test 2027 replay: thin positions filled 12/13 (real 2/13), top 30 in the first 30 picks 28 (real 29), largest reach 13 places. Owners without a board still get best available (a possible follow-up: offer them the CPU's need-aware pick).
+
 Owners' draft boards (8.7.0, `services/draft_board.py`) choose a pick from a
 ranked list plus position limits and needs. CPU clubs still take the best
 player left by overall (`_best_available` in `api/routers/draft.py`), so a
