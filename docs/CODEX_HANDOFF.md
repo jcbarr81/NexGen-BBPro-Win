@@ -270,13 +270,11 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ## 7. Current state — where development was left off (2026-11-04, VERSION 8.11.0)
 
-**Deployed vs. committed.** The live service reported **8.9.0** on
-2026-11-04 (`https://nexgen-bbpro.web.app/meta/app-status`). `main` holds
-8.9.1, 8.10.0 and 8.11.0, committed but **not deployed**, and is 5 commits
-ahead of `origin/main` (not pushed). The three are meant to go out together;
-8.9.1 also settles the 16 negotiations alpha-test's 2027 free-agency window
-left open, which it does only once the league is out of the amateur draft
-(its release note).
+**Deployed.** 8.11.0 (with 8.9.1 and 8.10.0) went live on 2026-11-05
+(Cloud Run revision `nexgen-bbpro-api-00271-sq6` + Firebase Hosting) and
+`main` is pushed. The first check after the deploy settled the 16
+negotiations alpha-test's 2027 free-agency window had left open (9 signed,
+7 no deal; window log `leftovers`).
 
 **Live leagues and operations switches.** Two live leagues with human owners,
 `alpha-test` (seven owner clubs) and `stats-test`. Cloud Run env (checked
@@ -310,7 +308,8 @@ channel; 8.7.x owners' draft boards; 8.8.x free-agent bid standing,
 owner-only notifications, the parallel test runner.
 
 **Open work — pick up here** (`docs/future_work.md` has the detail):
-1. **Deploy 8.9.1–8.11.0** when the owner gives the word (§4, `RELEASE.md`).
+1. **Watch the next free-agency window** (CPU spending under the 8.9.0
+   prices; every negotiation settling inside it).
 2. **#64 MLB-like salary arbitration** — fully specified, but the owner said
    to leave today's behaviour alone for now.
 3. **#52 remainder** — CPU free-agent bidding and arbitration still score
