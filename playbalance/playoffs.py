@@ -1596,6 +1596,27 @@ def _process_injured_lists_for_playoff_day(game_date: Optional[str]) -> None:
         pass
 
 
+def _start_pitching_day(game_date: Optional[str]) -> None:
+    """Start the pitcher tracker's day, as the regular season does each day.
+
+    The tracker caches each club's rotation for the day it last started.
+    Without this, the first playoff day reused the last regular-season day's
+    rotation, from before the September roster revert and the playoff-day
+    injured lists, and named a starter who was no longer active ("Pitcher
+    ... not found on pitching staff"). It also gives pitchers their
+    overnight recovery between playoff days.
+    """
+
+    if not game_date:
+        return
+    try:
+        from utils.pitcher_recovery import PitcherRecoveryTracker
+
+        PitcherRecoveryTracker.instance().start_day(str(game_date))
+    except Exception:  # pragma: no cover - defensive: never block a game
+        pass
+
+
 def _play_next_day(bracket: PlayoffBracket, *, year: int, simulate_game, persist) -> bool:
     """Play every playoff game on the earliest date that still has one.
 
@@ -1614,6 +1635,7 @@ def _play_next_day(bracket: PlayoffBracket, *, year: int, simulate_game, persist
     game_date = calendar.date_for(today)
     if simulate_game is None:
         _process_injured_lists_for_playoff_day(game_date)
+        _start_pitching_day(game_date)
     progressed = False
     for day, rnd, idx, matchup in games:
         if day != today:
