@@ -268,9 +268,15 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-05, VERSION 8.12.0)
+## 7. Current state — where development was left off (2026-11-06, VERSION 8.12.1)
 
-**Deployed.** 8.12.0 (with 8.11.1) went live on 2026-11-05 (Cloud Run
+**Deployed.** 8.12.1 went live on 2026-11-06 (Cloud Run revision
+`nexgen-bbpro-api-00273-csm` + Firebase Hosting; `main` pushed): league-relative
+promotion bars (#51), the playoff-day pitcher-tracker fix, and the build guard
+that refuses a client build without the Firebase sign-in settings. Watch
+alpha-test's first monthly call-ups and its next rollover's promotions.
+
+Before that, 8.12.0 (with 8.11.1) went live on 2026-11-05 (Cloud Run
 revision `nexgen-bbpro-api-00272-cj5` + Firebase Hosting) and `main` is
 pushed. The first autorun check after it backfilled alpha-test's 2026 Gold
 Gloves and Silver Sluggers (34, the same winners as the rehearsal on a
