@@ -13,7 +13,7 @@
     "dev:cloud": "vite --mode cloud",
     "dev:electron": "wait-on tcp:5173 dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "dev": "concurrently -k -n vite,tsc,electron -c cyan,yellow,magenta \"npm:dev:vite\" \"npm:watch:electron\" \"npm:dev:electron\"",
-    "build:renderer": "vite build",
+    "build:renderer": "node scripts/check-build-env.mjs && vite build",
     "build": "npm run clean && npm run build:electron && npm run build:renderer",
     "package": "npm run build && electron-builder"
   },

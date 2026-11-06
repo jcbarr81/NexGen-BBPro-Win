@@ -278,11 +278,19 @@ copy) and posted the news item. Before that, 8.11.0 (with 8.9.1 and 8.10.0,
 revision `00271-sq6`) settled the 16 negotiations alpha-test's 2027
 free-agency window had left open (9 signed, 7 no deal).
 
-**Deploy-worktree trap:** the Temp deploy worktree's `desktop/node_modules`
-can be wiped by Windows Temp cleanup; `npm run build:renderer` then fails
-("'vite' is not recognized") and the hosting deploy that follows re-publishes
-the OLD `desktop/dist`. Chain the two with `&&` and run `npm ci` first if
-`node_modules` is empty.
+**Deploy-worktree trap:** Windows Temp cleanup can wipe the Temp deploy
+worktree's untracked files. Two outages came from it on 2026-11-05/06:
+- `desktop/node_modules` gone: `npm run build:renderer` fails ("'vite' is not
+  recognized") and a hosting deploy run after it re-publishes the OLD
+  `desktop/dist`. Chain build and deploy with `&&`; run `npm ci` if
+  `node_modules` is empty.
+- `desktop/.env` gone (the Firebase web config; untracked): the build
+  succeeded and shipped an app with **no Google sign-in** -- every owner saw
+  "401 Missing bearer token" until it was rebuilt. Since 8.12.1
+  `build:renderer` runs `scripts/check-build-env.mjs` first and stops without
+  the config. Copy `desktop/.env` from the main checkout. After any hosting
+  deploy, check the live bundle carries the config (the served
+  `assets/index-*.js` contains `AIza`).
 
 **Live leagues and operations switches.** Two live leagues with human owners,
 `alpha-test` (seven owner clubs) and `stats-test`. Cloud Run env (checked
