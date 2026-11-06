@@ -268,13 +268,21 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-04, VERSION 8.11.0)
+## 7. Current state — where development was left off (2026-11-05, VERSION 8.12.0)
 
-**Deployed.** 8.11.0 (with 8.9.1 and 8.10.0) went live on 2026-11-05
-(Cloud Run revision `nexgen-bbpro-api-00271-sq6` + Firebase Hosting) and
-`main` is pushed. The first check after the deploy settled the 16
-negotiations alpha-test's 2027 free-agency window had left open (9 signed,
-7 no deal; window log `leftovers`).
+**Deployed.** 8.12.0 (with 8.11.1) went live on 2026-11-05 (Cloud Run
+revision `nexgen-bbpro-api-00272-cj5` + Firebase Hosting) and `main` is
+pushed. The first autorun check after it backfilled alpha-test's 2026 Gold
+Gloves and Silver Sluggers (34, the same winners as the rehearsal on a
+copy) and posted the news item. Before that, 8.11.0 (with 8.9.1 and 8.10.0,
+revision `00271-sq6`) settled the 16 negotiations alpha-test's 2027
+free-agency window had left open (9 signed, 7 no deal).
+
+**Deploy-worktree trap:** the Temp deploy worktree's `desktop/node_modules`
+can be wiped by Windows Temp cleanup; `npm run build:renderer` then fails
+("'vite' is not recognized") and the hosting deploy that follows re-publishes
+the OLD `desktop/dist`. Chain the two with `&&` and run `npm ci` first if
+`node_modules` is empty.
 
 **Live leagues and operations switches.** Two live leagues with human owners,
 `alpha-test` (seven owner clubs) and `stats-test`. Cloud Run env (checked
@@ -298,6 +306,10 @@ Secrets are Secret Manager references: `SENDGRID_API_KEY`,
 - **8.11.0** — CPU clubs draft by need (`services/draft_board.py`
   `cpu_plan` / `cpu_choose`, `api/routers/draft.py`); owners with no draft
   board are picked for the same way (#70).
+- **8.11.1** — pick your own team in the league wizard (#35), Members &
+  Email discoverability, a bad `NEXGEN_DATA_ROOT` is an error (#48).
+- **8.12.0** — per-league awards, Gold Gloves and Silver Sluggers
+  (`services/season_awards.py`), awards on player pages (#72).
 
 Earlier 8.x, for orientation: 8.0.0 engine generation 6 + scale 2 + player
 development; 8.1.0 generation 7 (shipped off) and one-club-per-player
@@ -317,9 +329,8 @@ owner-only notifications, the parallel test runner.
    in `finance_ai_tuning`, so switching needs a matched bar plus a migration.
    `services/draft_ai.py` is still unused (8.11.0 built need-aware drafting
    in `draft_board.py` instead): wire it or delete it.
-4. **#51** retune prospect promotion for the shared overall; **#35** pick
-   your team in the league-creation wizard; **#48** an unresolvable
-   `NEXGEN_DATA_ROOT` silently falls back to the repo's `data/`.
+4. **#51** retune prospect promotion for the shared overall (in progress
+   after 8.12.0).
 5. **Engine:** turning on generation 7 (`docs/generation7_switch_runbook.md`;
    park data first, `docs/park_data_generation7_runbook.md`); #55 explicit
    park picks for older leagues; #57 fast runners in the generator; #58
