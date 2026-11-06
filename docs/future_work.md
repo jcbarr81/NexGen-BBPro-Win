@@ -1807,3 +1807,32 @@ simple badge for a club that still fails, and only replace a club's old logo
 once its new one exists. Found building the promo-video demo league; seen with
 heavy 429 rate limiting (the image quota is shared with the live site's
 avatar jobs).
+
+## 74. Watch real season games pitch by pitch (owner request, 2026-11-06)
+
+The Live Game page (`/live`, `desktop/src/pages/LiveGamePage.tsx` +
+`api/ws/sim.py`, since the April 2026 UI overhaul) only plays exhibitions: it
+sims any two clubs the viewer picks, without the league's game-day state
+(rotation turn, pitcher fatigue), and saves nothing. Season games already run
+on the same pitch-by-pitch engine (`playbalance/game_runner.py`), and each one
+produces the full `pitch_log` the live page replays, but the season sim only
+uses it for box-score details and then drops it.
+
+**Chosen direction: replay real games.** Keep each season game's pitch log
+with its box score (and the postseason's), and add a "Watch" button on box
+scores and the schedule that streams it through the existing live viewer at
+the viewer's pace. It can't change the season, so it doesn't touch batch sims,
+the auto-run scheduler or the sim lock. To settle: storage (~300 pitches a
+game, a few MB a season in GCS — compress, or keep only the current season
+and archive at rollover like box scores), what resets/archives must clear
+(see the postseason-stats split), and what to show for games simmed before
+the change ("no replay").
+
+**Not now: playing your next scheduled game live**, where it counts for real.
+It collides with batch sims, the auto-run scheduler and the sim lock; in a
+multi-owner league the day can't advance while someone is watching. Revisit
+only if owners ask for it after replays ship.
+
+**Related quick fix:** `/live` has no menu entry (`desktop/src/lib/route-index.ts`)
+or tutorial, so owners can't find the exhibition viewer at all; it opens the
+promo video.
