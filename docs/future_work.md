@@ -179,6 +179,18 @@ an unresolvable configured root an error, not a fallback, and stop
 
 ## 51. Retune prospect promotion for the shared overall
 
+**SHIPPED 8.12.1.** The fixed bars turned out to be worse than too generous:
+in engine points (big leaguers ~52) nobody reached 65, so alpha-test's 2027
+rollover suggested no call-ups and in-season / September call-ups had no
+candidates. The bars are now league-relative on the shared overall, per role
+(`prospect_promotion.promotion_bars`): AAA->ACT at the big-league median and
+23+, or the big-league top quarter at any age; LOW->AAA at the AAA top
+quarter, or 22+. Fixed fallbacks (alpha-test 2027 values) when a level has
+fewer than 20 players at a role. The cap check the original note asked for
+already existed (CPU clubs promote only into open spots, owners get
+suggestions); owner suggestions are now one news line per club and level.
+Original note kept below.
+
 7.45.10 introduced one production-weighted overall (`utils/player_overall.py`)
 for display, CPU auto-assign and trades, but prospect promotion
 (`services/prospect_promotion._player_overall`, also used by in-season

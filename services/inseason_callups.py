@@ -20,9 +20,10 @@ from typing import Mapping, Sequence
 
 from playbalance.aging import calculate_age
 from services.prospect_promotion import (
-    AAA_TO_ACT_BLUECHIP_OVR,
+    PromotionBars,
     _player_overall,
     evaluate_promotion,
+    league_promotion_bars,
 )
 from services.prospect_rules import (
     apply_roster_move,
@@ -459,7 +460,7 @@ def _promote(
     # The text quotes the overall the league's pages show (rating scale 2);
     # on scale 1 the promotion score it always quoted.
     shown = overall_for_text(
-        player, overall, league_display_scale(data_dir / "players.csv")
+        player, int(round(overall)), league_display_scale(data_dir / "players.csv")
     )
     pos = _primary_pos(player) or "?"
     name = _name(player, pid)
@@ -506,15 +507,22 @@ def _promote(
     }
 
 
-def _eligible_aaa(roster: object, players_by_id: Mapping[str, object]) -> list[tuple[str, object, int]]:
-    out: list[tuple[str, object, int]] = []
+def _eligible_aaa(
+    roster: object, players_by_id: Mapping[str, object], bars: PromotionBars
+) -> list[tuple[str, object, float]]:
+    """AAA players who clear the league's call-up bars, best first."""
+
+    out: list[tuple[str, object, float]] = []
     for pid in list(getattr(roster, "aaa", []) or []):
         player = players_by_id.get(pid)
         if player is None or getattr(player, "injured", False):
             continue
         overall = _player_overall(player)
         age = _player_age(player)
-        if evaluate_promotion(current_level="AAA", age=age, overall=overall) == "ACT":
+        role_bars = bars[counts_as_pitcher(player)]
+        if evaluate_promotion(
+            current_level="AAA", age=age, overall=overall, bars=role_bars
+        ) == "ACT":
             out.append((pid, player, overall))
     out.sort(key=lambda item: item[2], reverse=True)
     return out
@@ -569,6 +577,7 @@ def run_monthly_callups(
     outlooks = load_outlooks(data_dir=resolved)
     rosters = {t: load_roster(t, resolved / "rosters") for t in cpu_team_ids}
     holes = _build_hole_table(cpu_team_ids, rosters, players_by_id)
+    bars = league_promotion_bars(resolved, players_by_id)
 
     try:
         past_deadline = date.fromisoformat(current) > trade_deadline_for_year(
@@ -589,7 +598,7 @@ def run_monthly_callups(
     for team_id in cpu_team_ids:
         roster = rosters[team_id]
         outlook = str(outlooks.get(team_id, "bubble") or "bubble")
-        candidates = _eligible_aaa(roster, players_by_id)
+        candidates = _eligible_aaa(roster, players_by_id, bars)
         if not candidates:
             filtered["no_candidates"] += 1
             continue
@@ -608,7 +617,7 @@ def run_monthly_callups(
         for pid, player, overall in candidates:
             if promoted_here >= quota:
                 break
-            if bluechip_only and overall < AAA_TO_ACT_BLUECHIP_OVR:
+            if bluechip_only and overall < bars[counts_as_pitcher(player)].bluechip:
                 continue
             if require_hole:
                 if _is_pitcher(player):
@@ -735,11 +744,12 @@ def run_september_expansion(*, sim_date: str, data_dir: Path | None = None) -> d
         if t and t not in human
     ]
 
+    bars = league_promotion_bars(resolved, players_by_id)
     promotions: list[dict] = []
     for team_id in cpu_team_ids:
         roster = load_roster(team_id, resolved / "rosters")
         changed = False
-        for pid, player, overall in _eligible_aaa(roster, players_by_id):
+        for pid, player, overall in _eligible_aaa(roster, players_by_id, bars):
             if len(getattr(roster, "act", []) or []) >= cap:
                 break
             if _is_pitcher(player) and _act_pitcher_count(roster, players_by_id) >= pitcher_cap:

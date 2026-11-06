@@ -79,9 +79,10 @@ PINNED_SCALE_1 = {
 # drag-and-swap pitching staff sentence; for 8.11.0: the Draft tutorial's
 # "How CPU clubs draft" step and its pick-clock sentence; 2026-11-04 docs
 # audit: steps brought up to date for 8.5-8.11 and a League Hub "Players"
-# step; 8.12.0: the League Hub "Awards" step).
+# step; 8.12.0: the League Hub "Awards" step; 8.12.1: the Roster tutorial's
+# "Prospects ready to move up" paragraph).
 PINNED_SCALE_1_TUTORIALS = (
-    "c74fee3c545779d2a31cf114e3a52a1088c1a44a7ef2406d7c38b942ccc99777"
+    "fcd4d3376d57de5ec48708a5d91495354c548cbe1fc611f24a559d8219c563a1"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

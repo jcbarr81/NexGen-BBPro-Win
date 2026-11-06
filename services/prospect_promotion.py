@@ -3,17 +3,29 @@
 Runs once per offseason (called from ``LeagueRolloverService``, AFTER
 retirements so promotions can fill any newly-vacated roster spots).
 
-Rules per level:
+Rules per level. "Overall" is the shared overall
+(``utils.player_overall``), and every bar is relative to the league's own
+players at the same role (hitters against hitters, pitchers against
+pitchers), measured on the roster files when the promoter runs
+(:func:`promotion_bars`, backlog #51):
 
   **LOW → AAA**
     - Age >= 22 regardless of overall (LOW is the developmental floor;
       anyone who hasn't progressed past it by 22 needs to face AAA
       pitching or get washed out)
-    - OR overall >= 55 (talented enough to challenge AAA)
+    - OR in the top quarter of the league's AAA players (talented enough
+      to challenge AAA)
 
   **AAA → ACT**
-    - Overall >= 65 AND age >= 23 (clear callup; the kid is ready)
-    - OR overall >= 72 (no-doubt callup regardless of age — true blue-chip prospect)
+    - At least the league's median big leaguer AND age >= 23 (clear
+      callup; the kid is ready)
+    - OR in the top quarter of the league's big leaguers, any age (a
+      blue-chip prospect)
+
+Fixed bars (55 / 65 / 72 on a flat rating average) used to stand here. In
+engine points, where big leaguers average about 52, nobody reached 65: the
+2027 rollover in alpha-test called up no one and in-season call-ups had no
+candidates.
 
 We don't auto-demote in v1. Promotions never push players past their
 level: a LOW prospect who deserves AAA *and* ACT in the same pass goes to
@@ -32,15 +44,15 @@ nothing moves at all (``reason: "ownership_unknown"``).
 from __future__ import annotations
 
 import csv
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from playbalance.aging import calculate_age
 from utils.path_utils import get_data_dir
 from utils.player_loader import load_players_from_csv
+from utils.player_overall import player_overall_score
 from utils.rating_display import league_display_scale, overall_for_text
-from utils.rating_scale import engine_rating
 from utils.roster_loader import load_roster, save_roster
 from utils.roster_rules import (
     AAA_CAP,
@@ -49,71 +61,130 @@ from utils.roster_rules import (
     counts_as_pitcher,
 )
 
-# LOW → AAA thresholds
+# Ages
 LOW_TO_AAA_AGE_FORCE = 22
-LOW_TO_AAA_OVR = 55
-
-# AAA → ACT thresholds
 AAA_TO_ACT_AGE = 23
-AAA_TO_ACT_OVR = 65
-AAA_TO_ACT_BLUECHIP_OVR = 72
+
+# Where each bar sits in the league's own population at the player's role.
+LOW_TO_AAA_SHARE = 0.75  # of the league's AAA players
+AAA_TO_ACT_READY_SHARE = 0.50  # of the league's big leaguers
+AAA_TO_ACT_BLUECHIP_SHARE = 0.75  # of the league's big leaguers
+
+# Fewer players than this at a level and role and the fixed bars below stand
+# in. They are alpha-test's 2027 values (shared overall, engine points).
+MIN_POPULATION = 20
+FALLBACK_BARS = {
+    False: {"low_to_aaa": 52.4, "ready": 52.4, "bluechip": 54.7},
+    True: {"low_to_aaa": 52.6, "ready": 52.8, "bluechip": 54.5},
+}
 
 
-def _player_overall(player: object) -> int:
-    """The promotion score the 55 / 65 / 72 bars were tuned for.
+@dataclass(frozen=True)
+class RoleBars:
+    """The promotion bars for one role (hitters or pitchers) in one league."""
 
-    Deliberately NOT the shared display overall (utils.player_overall): that
-    score spreads players about 1.3x wider, so these fixed bars would promote
-    several times as many players (alpha-test LOW->AAA: 2.4% -> 12.9%),
-    filling the open roster spots with marginal promotions. This flat
-    average never had the pitch-count bias of audit M14. Retune the bars
-    before switching (docs/future_work.md).
+    low_to_aaa: float
+    ready: float
+    bluechip: float
+
+
+PromotionBars = Dict[bool, RoleBars]  # keyed by "is a pitcher"
+
+
+def _player_overall(player: object) -> float:
+    """The promotion score: the shared overall (``utils.player_overall``),
+    the score the rest of the game shows and ranks by, to one decimal."""
+
+    score = player_overall_score(player)
+    return round(float(score), 1) if score is not None else 50.0
+
+
+def _share_point(values: List[float], share: float) -> float:
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(share * len(ordered)))]
+
+
+def promotion_bars(
+    players_by_id: Mapping[str, object],
+    levels: Iterable[Tuple[str, str]],
+) -> PromotionBars:
+    """The league's promotion bars from ``(player_id, level)`` pairs.
+
+    Each bar is a point in the league's own population at the player's role,
+    so it means the same on either rating scale and in any generation.
     """
 
-    is_pitcher = bool(getattr(player, "is_pitcher", False))
-    # rating-scale: keys read through engine_rating below
-    keys = (
-        ("arm", "control", "movement", "endurance")
-        if is_pitcher
-        else ("ch", "ph", "sp", "eye", "fa", "arm")
+    scores: Dict[Tuple[bool, str], List[float]] = {}
+    for pid, level in levels:
+        player = players_by_id.get(pid)
+        level = (level or "").strip().upper()
+        if player is None or level not in ("ACT", "AAA"):
+            continue
+        scores.setdefault((counts_as_pitcher(player), level), []).append(
+            _player_overall(player)
+        )
+    bars: PromotionBars = {}
+    for pitcher in (False, True):
+        fallback = FALLBACK_BARS[pitcher]
+        act = scores.get((pitcher, "ACT"), [])
+        aaa = scores.get((pitcher, "AAA"), [])
+        enough_act = len(act) >= MIN_POPULATION
+        bars[pitcher] = RoleBars(
+            low_to_aaa=(
+                _share_point(aaa, LOW_TO_AAA_SHARE)
+                if len(aaa) >= MIN_POPULATION
+                else fallback["low_to_aaa"]
+            ),
+            ready=(
+                _share_point(act, AAA_TO_ACT_READY_SHARE)
+                if enough_act
+                else fallback["ready"]
+            ),
+            bluechip=(
+                _share_point(act, AAA_TO_ACT_BLUECHIP_SHARE)
+                if enough_act
+                else fallback["bluechip"]
+            ),
+        )
+    return bars
+
+
+def league_promotion_bars(
+    data_dir: Path, players_by_id: Mapping[str, object]
+) -> PromotionBars:
+    """:func:`promotion_bars` over every roster file in ``data_dir``."""
+
+    rosters = _load_team_rosters_with_levels(Path(data_dir) / "rosters")
+    return promotion_bars(
+        players_by_id,
+        ((pid, level) for levels in rosters.values() for pid, level in levels.items()),
     )
-    values: list[float] = []
-    for key in keys:
-        # Engine scale: the 55 / 65 / 72 bars are in engine points.
-        raw = engine_rating(player, key, None)
-        if raw is None:
-            continue
-        try:
-            values.append(float(raw))
-        except (TypeError, ValueError):
-            continue
-    if not values:
-        return 50
-    return int(round(sum(values) / len(values)))
 
 
 def evaluate_promotion(
     *,
     current_level: str,
     age: Optional[int],
-    overall: int,
+    overall: float,
+    bars: RoleBars,
 ) -> Optional[str]:
     """Return the target level if *player* should be promoted, else None.
 
-    Only single-step promotions: a LOW player who deserves AAA returns
-    "AAA" even if they'd also clear the AAA→ACT bar. They get the second
-    promotion next offseason.
+    ``bars`` are the league's bars for the player's role
+    (:func:`promotion_bars`). Only single-step promotions: a LOW player who
+    deserves AAA returns "AAA" even if they'd also clear the AAA→ACT bar.
+    They get the second promotion next offseason.
     """
 
     level = (current_level or "").strip().upper()
     if level == "LOW":
-        if (age is not None and age >= LOW_TO_AAA_AGE_FORCE) or overall >= LOW_TO_AAA_OVR:
+        if (age is not None and age >= LOW_TO_AAA_AGE_FORCE) or overall >= bars.low_to_aaa:
             return "AAA"
         return None
     if level == "AAA":
-        if overall >= AAA_TO_ACT_BLUECHIP_OVR:
+        if overall >= bars.bluechip:
             return "ACT"
-        if overall >= AAA_TO_ACT_OVR and age is not None and age >= AAA_TO_ACT_AGE:
+        if overall >= bars.ready and age is not None and age >= AAA_TO_ACT_AGE:
             return "ACT"
         return None
     return None
@@ -187,6 +258,10 @@ def run_yearly_promotions(
             "reason": "ownership_unknown",
         }
 
+    bars = promotion_bars(
+        players_by_id,
+        ((pid, level) for levels in team_rosters.values() for pid, level in levels.items()),
+    )
     promotions: List[Dict[str, Any]] = []
     suggestions: List[Dict[str, Any]] = []
     skipped = {"act_full": 0, "staff_full": 0, "aaa_full": 0}
@@ -210,6 +285,7 @@ def run_yearly_promotions(
                 current_level=current_level,
                 age=age,
                 overall=overall,
+                bars=bars[counts_as_pitcher(player)],
             )
             if not target:
                 continue
@@ -265,10 +341,11 @@ def run_yearly_promotions(
     league_scale = league_display_scale(resolved / "players.csv")
 
     def _ovr(entry: Dict[str, Any]) -> Any:
+        quoted = int(round(entry["overall"]))
         player = players_by_id.get(entry["player_id"])
         if player is None:
-            return entry["overall"]
-        return overall_for_text(player, entry["overall"], league_scale)
+            return quoted
+        return overall_for_text(player, quoted, league_scale)
 
     _announce_suggestions(suggestions, resolved, _ovr)
     if not promotions:
@@ -345,7 +422,9 @@ def run_yearly_promotions(
 def _announce_suggestions(
     suggestions: List[Dict[str, Any]], data_dir: Path, ovr=None
 ) -> None:
-    """A news line per owner prospect who is ready for the next level.
+    """News for an owner's prospects who are ready for the next level: one
+    line per club and level, best first, so a deep farm doesn't post a
+    line per player.
 
     ``ovr(entry)`` is the overall the line quotes (default: the entry's
     promotion score)."""
@@ -356,22 +435,35 @@ def _announce_suggestions(
         from utils.news_logger import log_news_event
     except Exception:  # pragma: no cover - defensive
         return
+    groups: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
     for entry in suggestions:
-        name = f"{entry['first_name']} {entry['last_name']}".strip() or entry["player_id"]
-        label = f"{entry['primary_position']} {name}".strip()
-        if entry["to_level"] == "ACT":
-            advice = "is ready for the majors -- promote him from AAA when you have a spot."
+        key = (entry["team_id"], entry["from_level"], entry["to_level"])
+        groups.setdefault(key, []).append(entry)
+    for (team_id, from_level, to_level), entries in groups.items():
+        entries = sorted(entries, key=lambda e: -float(e["overall"]))
+        labels = []
+        for entry in entries:
+            name = f"{entry['first_name']} {entry['last_name']}".strip() or entry["player_id"]
+            label = f"{entry['primary_position']} {name}".strip()
+            quoted = ovr(entry) if ovr else int(round(float(entry["overall"])))
+            labels.append(f"{label} (age {entry['age']}, OVR {quoted})")
+        where = "the majors" if to_level == "ACT" else to_level
+        if len(entries) == 1:
+            message = (
+                f"{team_id}: {labels[0]} is ready for {where} -- promote him "
+                f"from {from_level} when you have a spot."
+            )
         else:
-            advice = (
-                f"is ready for {entry['to_level']} -- promote him from "
-                f"{entry['from_level']} when you have a spot."
+            message = (
+                f"{team_id}: {len(entries)} prospects are ready for {where}: "
+                f"{'; '.join(labels)}. Promote them from {from_level} when you "
+                "have a spot."
             )
         try:
             log_news_event(
-                f"{entry['team_id']}: {label} (age {entry['age']}, OVR "
-                f"{ovr(entry) if ovr else entry['overall']}) {advice}",
+                message,
                 category="promotion",
-                team_id=entry["team_id"],
+                team_id=team_id,
                 file_path=data_dir / "news_feed.txt",
             )
         except Exception:
@@ -380,10 +472,14 @@ def _announce_suggestions(
 
 __all__ = [
     "AAA_TO_ACT_AGE",
-    "AAA_TO_ACT_BLUECHIP_OVR",
-    "AAA_TO_ACT_OVR",
+    "AAA_TO_ACT_BLUECHIP_SHARE",
+    "AAA_TO_ACT_READY_SHARE",
     "LOW_TO_AAA_AGE_FORCE",
-    "LOW_TO_AAA_OVR",
+    "LOW_TO_AAA_SHARE",
+    "PromotionBars",
+    "RoleBars",
     "evaluate_promotion",
+    "league_promotion_bars",
+    "promotion_bars",
     "run_yearly_promotions",
 ]

@@ -213,19 +213,26 @@ def test_promotion_retirement_and_callup_scores(leagues):
     _same(leagues, player_retirement._player_overall)
     _same(leagues, prospect_promotion._player_overall)
     _same(leagues, inseason_callups._score)
-    # The bars themselves pick the same players.
-    bars = (
-        prospect_promotion.LOW_TO_AAA_OVR,
-        prospect_promotion.AAA_TO_ACT_OVR,
-        prospect_promotion.AAA_TO_ACT_BLUECHIP_OVR,
-    )
-    for bar in bars:
-        over = lambda players: {  # noqa: E731
-            pid
-            for pid, p in players.items()
-            if prospect_promotion._player_overall(p) >= bar
-        }
-        assert over(leagues["players"]["plain"]) == over(leagues["players"]["plain_twin"])
+    # The league's bars (backlog #51) are the same on either scale and pick
+    # the same players.
+    def cleared(players):
+        ids = sorted(players)
+        levels = [(pid, "ACT" if i % 2 else "AAA") for i, pid in enumerate(ids)]
+        bars = prospect_promotion.promotion_bars(players, levels)
+        out = set()
+        for pid, p in players.items():
+            role = bars[prospect_promotion.counts_as_pitcher(p)]
+            score = prospect_promotion._player_overall(p)
+            for name, bar in (
+                ("low", role.low_to_aaa), ("ready", role.ready), ("chip", role.bluechip)
+            ):
+                if score >= bar:
+                    out.add((pid, name))
+        return bars, out
+
+    plain = cleared(leagues["players"]["plain"])
+    twin = cleared(leagues["players"]["plain_twin"])
+    assert plain == twin
 
 
 # --- trades ----------------------------------------------------------------
