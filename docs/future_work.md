@@ -1795,3 +1795,15 @@ counts games started by position (`gs_<pos>`). Tests:
 - 2026 fielding rate stats mix two periods (#53); 2026's Gold Gloves rest on
   them and on fielding pct.
 
+
+## 73. One refused logo stops the whole logo batch (found 2026-11-06)
+
+`utils/logo_generator.generate_team_logos` loops the clubs and lets any
+exception end the run: when Vertex refused one prompt
+(`IMAGE_PROHIBITED_CONTENT`, transient — the same club succeeded on a retry),
+the job failed after two of twenty logos, having already deleted the league's
+old logos at the start. Generate per club with a retry, fall back to the
+simple badge for a club that still fails, and only replace a club's old logo
+once its new one exists. Found building the promo-video demo league; seen with
+heavy 429 rate limiting (the image quota is shared with the live site's
+avatar jobs).
