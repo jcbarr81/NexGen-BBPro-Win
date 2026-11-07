@@ -268,9 +268,14 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-06, VERSION 8.12.2)
+## 7. Current state — where development was left off (2026-11-07, VERSION 8.12.3)
 
-**Deployed.** 8.12.2 went live on 2026-11-06 (Cloud Run revision
+**Deployed.** 8.12.3 went live on 2026-11-07 (Cloud Run revision
+`nexgen-bbpro-api-00275-vvm` + Firebase Hosting): only the commissioner can
+sim or advance a multi-owner league. The guard read `league_settings.json`,
+which no league has, so owners could sim; it now also reads the league
+registry (`owner_league`). Finance flows still read the file only, on purpose.
+Before that, 8.12.2 went live on 2026-11-06 (Cloud Run revision
 `nexgen-bbpro-api-00274-ph7` + Firebase Hosting): the free-agent list's hand
 column (B/T) shows a pitcher's throwing side (owner request). Before that,
 8.12.1 went live on 2026-11-06 (Cloud Run revision
