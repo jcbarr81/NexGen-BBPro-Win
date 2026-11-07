@@ -268,9 +268,12 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-06, VERSION 8.12.1)
+## 7. Current state — where development was left off (2026-11-06, VERSION 8.12.2)
 
-**Deployed.** 8.12.1 went live on 2026-11-06 (Cloud Run revision
+**Deployed.** 8.12.2 went live on 2026-11-06 (Cloud Run revision
+`nexgen-bbpro-api-00274-ph7` + Firebase Hosting): the free-agent list's hand
+column (B/T) shows a pitcher's throwing side (owner request). Before that,
+8.12.1 went live on 2026-11-06 (Cloud Run revision
 `nexgen-bbpro-api-00273-csm` + Firebase Hosting; `main` pushed): league-relative
 promotion bars (#51), the playoff-day pitcher-tracker fix, and the build guard
 that refuses a client build without the Firebase sign-in settings. Watch
