@@ -242,7 +242,7 @@ export function SeasonPage() {
               }}
             />
           )}
-          <NextStepBanner state={state.data} />
+          <NextStepBanner state={state.data} owner={!canProgress} />
           <FinanceTodoBanner />
           <PhaseHeader state={state.data} />
           <MetricsRow state={state.data} />
@@ -287,21 +287,36 @@ export function SeasonPage() {
           {state.data.phase === "PRESEASON" && (
             <PreseasonActionsCard state={state.data} />
           )}
-          <RecentCard recent={recent} />
+          {canProgress && <RecentCard recent={recent} />}
         </div>
       ) : null}
     </AppShell>
   );
 }
 
-function NextStepBanner({ state }: { state: SeasonState }) {
+function NextStepBanner({
+  state,
+  owner = false,
+}: {
+  state: SeasonState;
+  /** An owner in a multi-owner league: the steps are the commissioner's, so
+   *  keep the phase headline and say who advances the season instead. */
+  owner?: boolean;
+}) {
   // Draft-ready and no-schedule each have their own richer banner — don't
   // double-prompt.
   if (state.draft_blocked || state.phase === "AMATEUR_DRAFT") return null;
   if (state.days_total === 0) return null;
 
-  const guidance = buildNextStep(state);
-  if (!guidance) return null;
+  const built = buildNextStep(state);
+  if (!built) return null;
+  const guidance = owner
+    ? {
+        ...built,
+        body: "The commissioner advances the season. Set your roster and lineup before the deadline below.",
+        cta: undefined,
+      }
+    : built;
 
   return (
     <Card className="border-amber/30 bg-amber/5">
@@ -1942,8 +1957,15 @@ function OwnerWaitingCard({
         <div className="flex items-center gap-2 text-xs">
           <span className="text-muted">Deadline:</span>
           <span className="font-semibold text-ink">
-            {deadlineQ.data?.deadline ?? "none set"}
+            {deadlineQ.data?.deadline
+              ? formatDeadlineLocal(deadlineQ.data.deadline)
+              : "none set"}
           </span>
+          {deadlineQ.data?.deadline && (
+            <span className="text-muted">
+              ({formatCountdown(deadlineQ.data.deadline)})
+            </span>
+          )}
         </div>
         {mine && (
           <div className="rounded-lg border border-border bg-surfaceAlt/40 px-3 py-2">

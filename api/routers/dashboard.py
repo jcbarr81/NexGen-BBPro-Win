@@ -63,12 +63,25 @@ def team_snapshot(team_id: str) -> Dict[str, Any]:
     """Headline numbers for the owner dashboard hero card."""
 
     metrics = _safe_metrics(team_id)
+    streak = str(metrics.get("streak", "--"))
+    last10 = str(metrics.get("last10", "--"))
+    if streak == "--" or last10 == "--":
+        # standings.json carries only W/L, so quick_metrics answers "--":
+        # rebuild them from the played schedule, as the division card does
+        # (the hero showed "--" beside a division table reading W3, 7-3).
+        from services.standings_form import streak_last10_from_schedule
+
+        form = streak_last10_from_schedule().get(team_id, {})
+        if streak == "--":
+            streak = form.get("streak", "--")
+        if last10 == "--":
+            last10 = form.get("last10", "--")
     return {
         "team_id": team_id,
         "record": metrics.get("record", "--"),
         "run_diff": metrics.get("run_diff", "--"),
-        "streak": metrics.get("streak", "--"),
-        "last10": metrics.get("last10", "--"),
+        "streak": streak,
+        "last10": last10,
         "next_opponent": metrics.get("next_opponent", "--"),
         "next_date": metrics.get("next_date", "--"),
         "injuries": metrics.get("injuries", 0),

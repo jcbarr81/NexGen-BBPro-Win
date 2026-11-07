@@ -597,7 +597,7 @@ export interface Performers {
   hitters?: { hot?: PerformerRow[]; cold?: PerformerRow[] };
   pitchers?: { hot?: PerformerRow[]; cold?: PerformerRow[] };
   window?: number;
-  range?: string;
+  range?: string | { start?: string; end?: string };
   [key: string]: unknown;
 }
 

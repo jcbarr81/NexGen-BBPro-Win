@@ -1094,6 +1094,16 @@ function KV({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+
+/** The hot/cold window as text; the API sends ``{start, end}`` (it used to
+ *  render as "[object Object]"). */
+function performersWindow(range: unknown): string | null {
+  if (!range) return null;
+  if (typeof range === "string") return `Window: ${range}`;
+  const r = range as { start?: string; end?: string };
+  return r.start && r.end ? `Games from ${r.start} to ${r.end}` : null;
+}
+
 function PerformersCard({
   performers,
 }: {
@@ -1109,9 +1119,8 @@ function PerformersCard({
         <div>
           <CardTitle>Hot &amp; Cold</CardTitle>
           <CardDescription>
-            {performers?.range
-              ? `Window: ${performers.range}`
-              : "Trending performers over the last week"}
+            {performersWindow(performers?.range) ??
+              "Trending performers over the last week"}
           </CardDescription>
         </div>
         <Badge tone="amber">

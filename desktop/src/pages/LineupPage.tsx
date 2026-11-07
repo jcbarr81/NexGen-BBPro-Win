@@ -503,7 +503,7 @@ function LineupTab({
           </CardTitle>
           <CardDescription>
             {lineup.data?.exists
-              ? "Loaded from disk. Edits save to data/lineups."
+              ? "Your saved batting order. Changes save when you press Save."
               : "No lineup file yet — build one below."}
           </CardDescription>
         </div>
