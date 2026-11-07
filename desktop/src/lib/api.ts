@@ -2791,6 +2791,8 @@ export const api = {
         primary_position: string;
         other_positions: string;
         bats: string;
+        /** Throwing side; the list shows it for pitchers (8.12.2). */
+        throws?: string;
         is_pitcher: boolean;
         role: string;
         ratings: Record<string, number | string | null>;

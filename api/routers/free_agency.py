@@ -157,6 +157,10 @@ def _summarize(player: Any, league_scale: Any = "page") -> Dict[str, Any]:
         "primary_position": getattr(player, "primary_position", ""),
         "other_positions": getattr(player, "other_positions", "") or "",
         "bats": getattr(player, "bats", "") or "",
+        # The list shows a pitcher's throwing side instead of the batting
+        # side (owner request, 8.12.2); the loader fills ``throws`` from
+        # ``bats`` for an older file without the column.
+        "throws": getattr(player, "throws", "") or "",
         "is_pitcher": is_pitcher,
         # The stored ``role`` column is stale (every pitcher in an older
         # league reads "RP"); derive it the way the roster page does.

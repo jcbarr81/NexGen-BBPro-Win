@@ -131,6 +131,11 @@ type FreeAgent = NonNullable<
   Awaited<ReturnType<typeof api.freeAgents>>
 >["free_agents"][number];
 
+/** The hand column: a pitcher's throwing side, a hitter's batting side. */
+function handText(fa: FreeAgent): string {
+  return (fa.is_pitcher ? fa.throws || fa.bats : fa.bats) || "";
+}
+
 /** Tooltip for an injured free agent's badge: what he has and when he is
  * expected back. */
 function injuryTitle(fa: FreeAgent): string {
@@ -492,7 +497,7 @@ export function FreeAgencyPage() {
                     <HeaderCell label="Player" keyId="name" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} align="left" />
                     <HeaderCell label="Pos" keyId="pos" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="Age" keyId="age" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
-                    <HeaderCell label="B" keyId="bats" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
+                    <HeaderCell label="B/T" keyId="bats" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="Role" keyId="role" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     <HeaderCell label="OVR" keyId="overall" sortKey={sortKey} sortDir={sortDir} onClick={toggleSort} />
                     {view === "ratings"
@@ -566,7 +571,12 @@ export function FreeAgencyPage() {
                       <td className="px-3 py-2 text-right tabular-nums">
                         {fa.age ?? "—"}
                       </td>
-                      <td className="px-3 py-2 text-right">{fa.bats || "—"}</td>
+                      <td
+                        className="px-3 py-2 text-right"
+                        title={fa.is_pitcher ? "Throws" : "Bats"}
+                      >
+                        {handText(fa) || "—"}
+                      </td>
                       <td className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted">
                         {fa.role || (fa.is_pitcher ? "PIT" : "POS")}
                       </td>
@@ -1353,7 +1363,7 @@ function sortValue(p: FreeAgent, key: SortKey): string | number | null {
     case "age":
       return p.age ?? null;
     case "bats":
-      return p.bats;
+      return handText(p);
     case "role":
       return p.role;
     case "overall":
