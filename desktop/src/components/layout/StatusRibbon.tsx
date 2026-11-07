@@ -26,6 +26,7 @@ import {
 
 import { api, type SeasonState, type LeagueStandings } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
+import { useLeagueCapabilities } from "@/lib/league-capabilities";
 import { toast } from "@/lib/toast-store";
 import { Badge, Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -74,6 +75,10 @@ export function StatusRibbon() {
   const navigate = useNavigate();
   const auth = useAuthStore();
   const teamId = auth.selectedTeamId ?? auth.teamId ?? null;
+  // In a multi-owner league only the commissioner advances the calendar
+  // (the server refuses everyone else), so owners don't get the buttons.
+  const { multiOwner } = useLeagueCapabilities();
+  const canSim = !multiOwner || auth.role === "admin" || auth.role === "commissioner";
 
   const seasonQ = useQuery({
     queryKey: ["season-state"],
@@ -278,30 +283,32 @@ export function StatusRibbon() {
           </button>
         )}
 
-      {/* Right: sim buttons */}
-      <div className="flex items-center gap-1">
-        <SimButton
-          label="+1 day"
-          icon={<Forward className="h-3 w-3" />}
-          pending={simDayMut.isPending}
-          disabled={anySimming}
-          onClick={() => simDayMut.mutate()}
-        />
-        <SimButton
-          label="+1 wk"
-          icon={<FastForward className="h-3 w-3" />}
-          pending={simWeekMut.isPending}
-          disabled={anySimming}
-          onClick={() => simWeekMut.mutate()}
-        />
-        <SimButton
-          label="+1 mo"
-          icon={<ChevronsRight className="h-3 w-3" />}
-          pending={simMonthMut.isPending}
-          disabled={anySimming}
-          onClick={() => simMonthMut.mutate()}
-        />
-      </div>
+      {/* Right: sim buttons (commissioner only in a multi-owner league) */}
+      {canSim && (
+        <div className="flex items-center gap-1">
+          <SimButton
+            label="+1 day"
+            icon={<Forward className="h-3 w-3" />}
+            pending={simDayMut.isPending}
+            disabled={anySimming}
+            onClick={() => simDayMut.mutate()}
+          />
+          <SimButton
+            label="+1 wk"
+            icon={<FastForward className="h-3 w-3" />}
+            pending={simWeekMut.isPending}
+            disabled={anySimming}
+            onClick={() => simWeekMut.mutate()}
+          />
+          <SimButton
+            label="+1 mo"
+            icon={<ChevronsRight className="h-3 w-3" />}
+            pending={simMonthMut.isPending}
+            disabled={anySimming}
+            onClick={() => simMonthMut.mutate()}
+          />
+        </div>
+      )}
     </div>
   );
 }

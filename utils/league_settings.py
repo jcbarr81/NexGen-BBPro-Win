@@ -123,6 +123,24 @@ def set_extra_innings_runner(
     return settings
 
 
+def _registry_says_owner_league() -> bool:
+    """Is the current league registered as a multi-owner league?
+
+    False when the registry can't be read or doesn't list the league, which
+    leaves the settings file in charge, as before.
+    """
+
+    try:
+        from services.league_registry import get_league
+        from utils.path_utils import get_active_league_id
+
+        league_id = get_active_league_id()
+        record = get_league(league_id) if league_id else None
+    except Exception:
+        return False
+    return bool(record is not None and record.mode == _OWNER_MODE)
+
+
 def can_run_season_progression(
     actor_role: Optional[str],
     *,
@@ -132,9 +150,16 @@ def can_run_season_progression(
 
     In single-player leagues, all roles are allowed. In multi-owner leagues,
     season progression is restricted to commissioner/admin roles.
+
+    A league is multi-owner when its ``league_settings.json`` says so OR the
+    league registry does (8.12.3). No production path writes the settings
+    file, so the registry's ``owner_league`` is the only place a cloud league
+    records it; reading the file alone let every owner sim the whole league.
+    Only this permission check reads the registry: the finance flows keep
+    reading the settings file, so their behaviour is unchanged.
     """
 
-    if not is_owner_league(settings):
+    if not (is_owner_league(settings) or _registry_says_owner_league()):
         return True
     role = str(actor_role or "").strip().lower()
     return role in _COMMISSIONER_ROLES
