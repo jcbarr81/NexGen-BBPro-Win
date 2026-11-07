@@ -43,3 +43,22 @@ def test_no_schedule_form_leaves_the_dashes(monkeypatch):
     monkeypatch.setattr(form, "streak_last10_from_schedule", lambda: {})
     snap = dashboard.team_snapshot("WAS")
     assert (snap["streak"], snap["last10"]) == ("--", "--")
+
+
+# --- the lineup check reads "LF|RF" (8.12.4) -----------------------------------
+
+
+def test_pipe_separated_positions_count_as_eligible():
+    from services.roster_validation import _player_positions
+
+    player = {"primary_position": "CF", "other_positions": "LF|RF"}
+    assert _player_positions(player) == {"CF", "LF", "RF"}
+
+
+def test_older_position_formats_still_parse():
+    from services.roster_validation import _player_positions
+
+    assert _player_positions({"primary_position": "2B", "other_positions": "SS,3B"}) == {"2B", "SS", "3B"}
+    assert _player_positions({"primary_position": "2B", "other_positions": "SS/3B"}) == {"2B", "SS", "3B"}
+    assert _player_positions({"primary_position": "C", "other_positions": "['1B']"}) == {"C", "1B"}
+    assert _player_positions({"primary_position": "C", "other_positions": ""}) == {"C"}

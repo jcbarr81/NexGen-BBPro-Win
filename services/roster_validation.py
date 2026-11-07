@@ -108,7 +108,17 @@ def _player_positions(player: Mapping[str, Any]) -> Set[str]:
     primary = str(player.get("primary_position", "") or "").upper()
     raw_others = player.get("other_positions", "")
     if isinstance(raw_others, str):
-        others = [tok.strip().upper() for tok in raw_others.replace(",", "/").split("/") if tok.strip()]
+        # Stored as "LF|RF" (the writer's format), older rows as "LF,RF",
+        # "LF/RF" or a list literal; "|" used to slip through, so a CF listed
+        # at "LF|RF" drew a false "not listed at LF" warning (8.12.4).
+        from utils.player_loader import _parse_other_positions
+
+        others = [
+            tok
+            for part in _parse_other_positions(raw_others)
+            for tok in part.split("/")
+            if tok
+        ]
     elif isinstance(raw_others, Iterable):
         others = [str(tok).strip().upper() for tok in raw_others if str(tok).strip()]
     else:
