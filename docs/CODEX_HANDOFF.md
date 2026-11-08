@@ -280,9 +280,22 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-07, VERSION 8.13.0)
+## 7. Current state — where development was left off (2026-11-08, VERSION 8.15.0)
 
-**Deployed.** 8.13.0 went live on 2026-11-07 (Cloud Run revision
+**Deployed.** 8.15.0 went live on 2026-11-08 (Cloud Run revision
+`nexgen-bbpro-api-00279-9c9` + Firebase Hosting; `main` pushed): the 2D Game
+Viewer (backlog #74 steps 2 and 3). `services/replay_plays.py` turns a stored
+replay into timed plays (`nexgen.plays/1`, served gzipped by
+`GET /boxscore/replay/plays`), `check_plays` holds every play to the engine's
+outcome (run `scripts/check_replay_plays.py` after any engine or converter
+change), and a box score with a replay shows **Watch game**, which opens
+`/game-viewer` (key-plays and every-pitch modes). Spec:
+`docs/replay/REPLAY_DATA_SPEC.md` section 4. Next for #74: the 3D viewer.
+Before that, 8.14.0 went live on 2026-11-08 (Cloud Run revision
+`nexgen-bbpro-api-00278-sn4`, server only): every season and playoff game
+saves its replay (`boxscores/<type>/<id>.replay.json.gz`); games before it
+have none.
+Before that, 8.13.0 went live on 2026-11-07 (Cloud Run revision
 `nexgen-bbpro-api-00277-5wn` + Firebase Hosting; `main` pushed): owner how-to
 videos (first week, trades, free agency, draft) plus the one-minute promo at
 `/videos/` (Hosting files uploaded by `scripts/videos_site.py`, not in the
