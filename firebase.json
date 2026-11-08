@@ -3,6 +3,7 @@
     "site": "nexgen-bbpro",
     "public": "desktop/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "postdeploy": "python scripts/videos_site.py --keep",
     "rewrites": [
       { "source": "/discover", "destination": "/index.html" },
       { "source": "/register", "destination": "/index.html" },

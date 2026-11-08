@@ -39,6 +39,7 @@ import {
   TabsTrigger,
 } from "@/components/ui";
 import { TutorialDialog, type TutorialStep } from "@/components/help/TutorialDialog";
+import { HelpVideos } from "@/components/HelpVideos";
 import { Input } from "@/components/ui";
 import { useTutorialStore } from "@/lib/tutorial-store";
 
@@ -79,6 +80,9 @@ function HelpBody() {
         <TabsTrigger value="tutorials">
           <GraduationCap className="mr-1 h-4 w-4" /> Tutorials
         </TabsTrigger>
+        <TabsTrigger value="videos">
+          <PlayCircle className="mr-1 h-4 w-4" /> Videos
+        </TabsTrigger>
         <TabsTrigger value="legacy">
           <FileText className="mr-1 h-4 w-4" /> Legacy manuals
         </TabsTrigger>
@@ -88,6 +92,9 @@ function HelpBody() {
       </TabsContent>
       <TabsContent value="tutorials">
         <TutorialsTab />
+      </TabsContent>
+      <TabsContent value="videos">
+        <HelpVideos />
       </TabsContent>
       <TabsContent value="legacy">
         <LegacyManualsTab />

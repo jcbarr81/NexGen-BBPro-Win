@@ -165,6 +165,18 @@ repo root, then `python scripts/announce_release.py --message "..."` to post
 to Discord. Deploys are outward-facing (live leagues with human owners):
 confirm with the owner before deploying.
 
+**The owners' videos live at `/videos/` on the Hosting site, not in the
+build.** `firebase deploy --only hosting` releases only `desktop/dist`, so
+`firebase.json` runs `python scripts/videos_site.py --keep` after every
+hosting deploy: it copies the `/videos/` files of the newest earlier release
+into a new release by their hashes (nothing is re-uploaded; needs gcloud
+credentials). After a hosting deploy, check that
+`https://nexgen-bbpro.web.app/videos/` still loads; if the hook failed, run
+`python scripts/videos_site.py --keep` by hand. New or changed videos are made
+in `C:\dev\video\nexgen` (`sitefiles.py` builds `site\videos`) and released
+with `python scripts/videos_site.py <that folder> --go` (`--preview` first for
+a one-day test address). The Help page's Videos tab plays the same files.
+
 `scripts\build_release.py` (the Windows EXE + installer) is retired; don't
 run it for a release, whatever older docs say.
 
