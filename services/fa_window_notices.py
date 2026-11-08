@@ -285,6 +285,7 @@ def day_advanced(
             )
         _news(base, news)
         out["news"] = news
+        out["signings"] = _signing_news(base, signed)
         if closed or day >= total:
             return out
         owners = _owners(base)
@@ -309,6 +310,40 @@ def day_advanced(
     except Exception:
         _LOGGER.exception("fa notices: day-advance notices failed")
     return out
+
+
+def _signing_news(base: Path, signed: List[Mapping[str, Any]]) -> List[str]:
+    """One team-tagged news line per signing (8.12.5), so it shows in that
+    club's own news. The day's line above only counts them. Contract terms
+    are public (the Contracts page shows them), so this reveals nothing new."""
+
+    lines: List[str] = []
+    names: Optional[Dict[str, str]] = None
+    for entry in signed or []:
+        team = str(entry.get("team_id") or "").strip().upper()
+        pid = str(entry.get("player_id") or "").strip()
+        name = str(entry.get("player_name") or "").strip()
+        if not name or name == pid:
+            if names is None:
+                names = _player_names(base)
+            name = names.get(pid) or pid
+        if not team or not name:
+            continue
+        text = f"{team} signed free agent {name}: {_terms(entry)}."
+        try:
+            from utils.news_logger import log_news_event
+
+            log_news_event(
+                text,
+                category="free_agency",
+                team_id=team,
+                file_path=base / "news_feed.txt",
+            )
+        except Exception:
+            _LOGGER.exception("fa notices: could not post a signing")
+            continue
+        lines.append(text)
+    return lines
 
 
 def _money(value: Any) -> str:

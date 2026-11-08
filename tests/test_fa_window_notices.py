@@ -132,9 +132,13 @@ def test_a_day_names_the_signings_and_the_outbid_owner(league, monkeypatch):
     )
     result = w.advance_day()
     assert result["ok"] is True
-    assert _news(league)[-1].endswith(
+    assert _news(league)[-2].endswith(
         "[free_agency] Free agency day 1 of 14: 1 signing. Day 2 is open."
     )
+    # 8.12.5: each signing also gets a line tagged with its club.
+    assert _news(league)[-1].endswith(
+        "[free_agency] [NYY] NYY signed free agent Cal Cole: 1 yr at $1/yr."
+    ), _news(league)[-1]
     event = _history("BAL")[0]  # newest first
     assert event["title"] == "Outbid on 1 free agent"
     assert event["message"] == (
