@@ -38,12 +38,21 @@ For a small contained change, the area's test files plus
 `tests\test_rating_scale_display.py` and `tests\test_team_scoped_write_ownership.py`
 and the type check are enough (`AGENTS.md`).
 
-Engine or calibration changes: the KPI harness must be green on seeds 1 and 2:
+Engine or calibration changes: the KPI harness must be green on seeds 1 and 2,
+run on the calibration fixture the way CI runs it
+(`.github/workflows/physics_sim_kpi.yml`). Without `--base-dir`/`--players`
+the script falls back to the repo's sample `data/players.csv`, which has no
+pitch-rating columns and stops with "Missing required field: cu".
 
 ```powershell
-python scripts\physics_sim_season_kpis.py --strict --seed 1
-python scripts\physics_sim_season_kpis.py --strict --seed 2
+$cal = "--games 162 --base-dir data\calibration --players data\calibration\players.csv --strict"
+python scripts\physics_sim_season_kpis.py $cal.Split() --seed 1
+python scripts\physics_sim_season_kpis.py $cal.Split() --seed 2
+python scripts\physics_sim_season_kpis.py $cal.Split() --seed 1 --engine 6
 ```
+
+CI also runs `--engine 5` and `--engine 7`, and the running gate on
+`data\calibration_league` (`--gate-set running`).
 
 Finance changes: the finance release gate (finance tests + multi-league
 smoke + stability sim):
