@@ -280,9 +280,20 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-07, VERSION 8.12.4)
+## 7. Current state — where development was left off (2026-11-07, VERSION 8.13.0)
 
-**Deployed.** 8.12.4 went live on 2026-11-07 (Cloud Run revision
+**Deployed.** 8.13.0 went live on 2026-11-07 (Cloud Run revision
+`nexgen-bbpro-api-00277-5wn` + Firebase Hosting; `main` pushed): owner how-to
+videos (first week, trades, free agency, draft) plus the one-minute promo at
+`/videos/` (Hosting files uploaded by `scripts/videos_site.py`, not in the
+build), a Help & Tutorials Videos tab, the promo under the sign-in box, and
+fixes found while filming: proposing a trade to a CPU club says what it did
+and opens that tab, CPU trade reasons in plain words for owners, an owner's
+From team locked to their club, the FA dialog's Competing bids lists the CPU
+offers actually made, and each FA-window signing gets a team-tagged news
+line. The hosting deploy's `postdeploy` hook (`videos_site.py --keep`) carried
+/videos/ into the new release; check /videos/ after every hosting deploy.
+Before that, 8.12.4 went live on 2026-11-07 (Cloud Run revision
 `nexgen-bbpro-api-00276-2b8` + Firebase Hosting): owner-page polish (dashboard
 streak/last-10 cards fill from the schedule, the hot-and-cold window shows its
 dates, the Season page's owner wording and local-time deadline, the lineup save
