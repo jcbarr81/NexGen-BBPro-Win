@@ -17,6 +17,7 @@ import {
   Label,
 } from "@/components/ui";
 import { Brand } from "@/components/layout/Brand";
+import { PromoVideo } from "@/components/HelpVideos";
 import { toast } from "@/lib/toast-store";
 import type { User } from "firebase/auth";
 
@@ -41,7 +42,7 @@ function humanize(err: unknown): string {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="relative z-10 flex h-full items-center justify-center bg-canvas"
+      className="relative z-10 flex h-full overflow-y-auto bg-canvas"
       style={{
         backgroundImage: [
           "radial-gradient(circle at 50% 110%, hsl(var(--ballpark) / 0.25), transparent 60%)",
@@ -49,7 +50,9 @@ function Shell({ children }: { children: React.ReactNode }) {
         ].join(","),
       }}
     >
-      <div className="w-full max-w-md animate-fade-in space-y-6 px-6">
+      {/* m-auto, not items-center: centred when it fits, scrolls (rather
+          than losing its top) when the promo makes it taller than the window. */}
+      <div className="m-auto w-full max-w-md animate-fade-in space-y-6 px-6 pb-20 pt-8">
         <div className="flex justify-center">
           <Brand />
         </div>
@@ -230,6 +233,7 @@ function CloudLogin() {
           </form>
         </CardContent>
       </Card>
+      <PromoVideo />
     </Shell>
   );
 }

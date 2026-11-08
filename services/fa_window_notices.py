@@ -313,7 +313,7 @@ def day_advanced(
 
 
 def _signing_news(base: Path, signed: List[Mapping[str, Any]]) -> List[str]:
-    """One team-tagged news line per signing (8.12.5), so it shows in that
+    """One team-tagged news line per signing (8.13.0), so it shows in that
     club's own news. The day's line above only counts them. Contract terms
     are public (the Contracts page shows them), so this reveals nothing new."""
 

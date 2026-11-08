@@ -1,4 +1,4 @@
-"""A CPU club's verdict on a trade carries plain-words reasons (8.12.5).
+"""A CPU club's verdict on a trade carries plain-words reasons (8.13.0).
 
 The trade card showed owners the evaluator's own notes ("Incoming vs outgoing
 value delta scored +6.99", "strategy profile 'balanced'"), while the

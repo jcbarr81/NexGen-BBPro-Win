@@ -1,4 +1,4 @@
-"""The offer dialog's "Competing bids" lists the real CPU offers when there are some (8.12.5).
+"""The offer dialog's "Competing bids" lists the real CPU offers when there are some (8.13.0).
 
 During the bidding window the CPU clubs' offers are on file from day one, but
 the dialog showed a fresh prediction instead: the same amounts, paired with

@@ -50,6 +50,60 @@ function length(seconds: number | undefined): string | null {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/**
+ * The one-minute promo for the sign-in page (8.13.0): a poster that becomes
+ * the player when clicked. Hidden altogether if /videos/ is not there (a
+ * local build, or before the videos are uploaded).
+ */
+export function PromoVideo() {
+  const [playing, setPlaying] = useState(false);
+  const [missing, setMissing] = useState(false);
+  if (missing) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-2 text-sm">
+        <span className="font-semibold text-ink">NexGen-BBPro in a minute</span>
+        <a
+          href={`${BASE}/`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex shrink-0 items-center gap-1 text-xs text-amber hover:underline"
+        >
+          More videos <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+      {playing ? (
+        <video
+          src={`${BASE}/promo.mp4`}
+          poster={`${BASE}/promo.jpg`}
+          controls
+          autoPlay
+          preload="metadata"
+          className="aspect-video w-full rounded-md bg-black"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPlaying(true)}
+          className="group relative block w-full overflow-hidden rounded-md border border-border"
+          aria-label="Play NexGen-BBPro in a minute"
+        >
+          <img
+            src={`${BASE}/promo.jpg`}
+            alt=""
+            loading="lazy"
+            onError={() => setMissing(true)}
+            className="aspect-video w-full bg-black object-cover"
+          />
+          <span className="absolute inset-0 flex items-end justify-end bg-black/20 p-3 transition group-hover:bg-black/0">
+            <PlayCircle className="h-10 w-10 text-amber drop-shadow" />
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function HelpVideos() {
   const [lengths, setLengths] = useState<Record<string, number>>({});
   const [playing, setPlaying] = useState<string | null>(null);

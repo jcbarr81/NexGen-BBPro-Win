@@ -223,7 +223,7 @@ def _cpu_response(evaluation: Any) -> Dict[str, Any]:
 
     ``reasons`` are the evaluator's own notes (scores and deltas), kept for the
     commissioner; ``owner_reasons`` say the same in plain words, the ones the
-    acceptance meter shows, and are what an owner sees on the trade (8.12.5).
+    acceptance meter shows, and are what an owner sees on the trade (8.13.0).
     """
 
     from services.cpu_trade_evaluator import owner_facing_reasons

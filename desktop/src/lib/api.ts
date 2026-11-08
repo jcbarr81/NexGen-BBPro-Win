@@ -881,7 +881,7 @@ export interface TradeCpuEvaluation {
   /** The evaluator's own notes (scores, deltas): for the commissioner. */
   reasons: string[];
   /** The same verdict in plain words, as the acceptance meter says it
-   * (8.12.5; missing on trades decided before then). */
+   * (8.13.0; missing on trades decided before then). */
   owner_reasons?: string[];
 }
 

@@ -392,7 +392,7 @@ def _competing_bids(
 
     When the player already has an open negotiation holding CPU offers (the
     bidding window seeds them on its first day), those real offers are shown
-    instead (8.12.5). The prediction below drew the same amounts but paired
+    instead (8.13.0). The prediction below drew the same amounts but paired
     them with other clubs, so the dialog named clubs that had not bid and
     left out the ones that had. Other owners' offers are never listed.
     """
