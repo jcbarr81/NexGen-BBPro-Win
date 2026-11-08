@@ -9,6 +9,7 @@
 import { getBridge } from "./bridge";
 import { useAuthStore } from "./auth-store";
 import { firebaseEnabled, getIdToken } from "./firebase";
+import type { GamePlaysDoc } from "./game-viewer";
 
 export class ApiError extends Error {
   constructor(
@@ -3012,9 +3013,13 @@ export const api = {
     }>(`/activity${qs ? `?${qs}` : ""}`);
   },
   boxscore: (path: string) =>
-    apiRequest<{ path: string; filename: string; html: string }>(
+    apiRequest<{ path: string; filename: string; html: string; has_replay?: boolean }>(
       `/boxscore?path=${encodeURIComponent(path)}`,
     ),
+  /** The game viewer's timed plays (backlog #74; 404 for a game played
+   *  before replays were kept, 8.14.0). */
+  gamePlays: (path: string) =>
+    apiRequest<GamePlaysDoc>(`/boxscore/replay/plays?path=${encodeURIComponent(path)}`),
   playerProfile: (playerId: string) =>
     apiRequest<PlayerProfile>(
       `/players/${encodeURIComponent(playerId)}/profile`,

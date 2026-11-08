@@ -1017,6 +1017,34 @@ TUTORIALS: List[Tutorial] = [
         ],
     ),
     Tutorial(
+        tutorial_id="game_viewer",
+        title="Game Viewer",
+        summary="Watch a played game on the field, one key play or every pitch.",
+        route="/game-viewer",
+        steps=[
+            TutorialStep(
+                "Open a game",
+                "<p>Open any box score (the result on the <b>Schedule</b>, or a game on the <b>Playoffs</b> page) and press <b>Watch game</b>. Games played before version 8.14 have no button: they kept no pitch-by-pitch record.</p>",
+            ),
+            TutorialStep(
+                "Two ways to watch",
+                "<p><b>Key plays</b> shows the pitch each at-bat's result happened on, plus steals, wild pitches and pickoffs: a whole game in a few minutes. <b>Every pitch</b> shows every pitch and every play. Switch any time; you keep your place.</p>",
+            ),
+            TutorialStep(
+                "Controls",
+                "<p><b>Play</b> / <b>Pause</b> (space bar), previous and next play (arrow keys), replay the current play, and a speed of 0.5x to 4x. <b>Jump to</b> skips to the start of any half-inning.</p>",
+            ),
+            TutorialStep(
+                "What you see",
+                "<p>Your fielders in white with their positions, the batter and runners in gold with their names, and the ball with its shadow (the higher it flies, the further apart they are). The scoreboard, outs, count and bases update as each play ends, and the play-by-play only lists what you have already watched, so nothing is spoiled.</p>",
+            ),
+            TutorialStep(
+                "The game decided it",
+                "<p>Every out, hit, run and runner's base is exactly what the simulation produced; the viewer fills in the timing. A 3D view is planned next.</p>",
+            ),
+        ],
+    ),
+    Tutorial(
         tutorial_id="exhibition",
         title="Exhibition Game",
         summary="Run a one-off simulation outside the schedule.",

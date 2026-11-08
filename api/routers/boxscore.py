@@ -13,9 +13,11 @@ the filesystem.
 
 from __future__ import annotations
 
+import gzip
+import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from utils.path_utils import get_data_dir
 
@@ -90,7 +92,15 @@ def get_boxscore(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to read boxscore: {exc}",
         ) from exc
-    return {"path": str(resolved), "filename": resolved.name, "html": html}
+    from services.game_replay import replay_path_for_boxscore
+
+    return {
+        "path": str(resolved),
+        "filename": resolved.name,
+        "html": html,
+        # The game viewer can show this game (8.15.0): its replay was kept.
+        "has_replay": replay_path_for_boxscore(resolved).exists(),
+    }
 
 
 @router.get("/replay")
@@ -107,6 +117,10 @@ def get_game_replay(
     services.game_replay, docs/replay/REPLAY_DATA_SPEC.md). 404 for a game
     played before replays were kept."""
 
+    return _load_replay(path)
+
+
+def _load_replay(path: str) -> dict:
     from services.game_replay import decode_replay, replay_path_for_boxscore
 
     resolved = _safe_resolve(path)
@@ -123,3 +137,29 @@ def get_game_replay(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to read the replay: {exc}",
         ) from exc
+
+
+@router.get("/replay/plays")
+def get_game_plays(
+    request: Request,
+    path: str = Query(
+        ...,
+        description="The game's stored box score path (as for /boxscore/replay)",
+    ),
+) -> Response:
+    """The game viewer's timed plays for a game (backlog #74 step 2;
+    services.replay_plays): built from the stored replay on every request,
+    so a better converter re-renders old games. Gzipped when the browser
+    accepts it (a game is a few hundred KB of JSON, ~40 KB gzipped)."""
+
+    from services.replay_plays import build_plays
+
+    doc = build_plays(_load_replay(path))
+    body = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    if "gzip" in (request.headers.get("accept-encoding") or "").lower():
+        return Response(
+            content=gzip.compress(body, compresslevel=6, mtime=0),
+            media_type="application/json",
+            headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+        )
+    return Response(content=body, media_type="application/json")

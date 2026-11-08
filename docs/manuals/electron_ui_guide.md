@@ -17,7 +17,7 @@ everyone; admin-only sections are marked.
 2. [Sidebar & navigation](#sidebar--navigation)
 3. [Today](#today) — [Dashboard](#dashboard) · [Season](#season) · [News](#news)
 4. [My Team](#my-team) — [Roster](#roster) · [Lineup](#lineup) · [Depth Chart](#depth-chart) · [Training](#training) · [Injuries](#injuries) · [Notifications](#notifications) · [Finance](#finance) · [Contracts](#contracts) · [Settings](#team-settings)
-5. [League](#league) — Standings · Leaders · Stats · Players · Awards · Teams · Schedule · Playoffs · History · Hall of Fame · Records · Ballparks
+5. [League](#league) — Standings · Leaders · Stats · Players · Awards · Teams · Schedule · Playoffs · History · Hall of Fame · Records · Ballparks · Game Viewer
 6. [Transactions](#transactions) — Free Agency · Trades · Draft · Activity
 7. [Admin (Commissioner)](#admin-commissioner)
 8. [Platform admin (Super-admin)](#platform-admin-super-admin)
@@ -525,6 +525,15 @@ the same rules, and each extension is a news item.
 - **Playoffs / History / Hall of Fame / Records / Ballparks** — current bracket,
   completed-season archive, HOF inductees (admins induct/remove), the record
   book, and the standalone park catalog with field diagrams.
+- **Game Viewer** — watch a played game on a 2D field. Open a box score and
+  press **Watch game** (games from 8.14 on; earlier games kept no
+  pitch-by-pitch record). **Key plays** shows the pitch each at-bat's result
+  happened on (plus steals, wild pitches and pickoffs); **Every pitch** shows
+  them all. Play/pause with the space bar, step with the arrow keys, pick a
+  speed (0.5x to 4x) or jump to a half-inning. The scoreboard, count, outs and
+  bases change as each play ends, and the play-by-play lists only what you
+  have watched. Every outcome is the simulation's own; the viewer fills in the
+  timing.
 
 ---
 

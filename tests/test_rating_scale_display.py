@@ -80,9 +80,10 @@ PINNED_SCALE_1 = {
 # "How CPU clubs draft" step and its pick-clock sentence; 2026-11-04 docs
 # audit: steps brought up to date for 8.5-8.11 and a League Hub "Players"
 # step; 8.12.0: the League Hub "Awards" step; 8.12.1: the Roster tutorial's
-# "Prospects ready to move up" paragraph).
+# "Prospects ready to move up" paragraph; 8.15.0: the new "Game Viewer"
+# tutorial).
 PINNED_SCALE_1_TUTORIALS = (
-    "fcd4d3376d57de5ec48708a5d91495354c548cbe1fc611f24a559d8219c563a1"
+    "d519868522c2d6d7cca47bacf35da98d8afde53f43377e453f29d5ab2d5f6c99"
 )
 
 MOVED_HITTER = ("ch", "ph", "eye", "fa", "arm")

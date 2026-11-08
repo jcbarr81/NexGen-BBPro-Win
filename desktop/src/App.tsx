@@ -103,6 +103,9 @@ const PlayerProfilePage = lazy(() =>
 const BoxscorePage = lazy(() =>
   named("BoxscorePage", () => import("@/pages/BoxscorePage")),
 );
+const GameViewerPage = lazy(() =>
+  named("GameViewerPage", () => import("@/pages/GameViewerPage")),
+);
 const TeamDetailPage = lazy(() =>
   named("TeamDetailPage", () => import("@/pages/TeamDetailPage")),
 );
@@ -451,6 +454,14 @@ export default function App() {
           element={
             <RequireLeague>
               <BoxscorePage />
+            </RequireLeague>
+          }
+        />
+        <Route
+          path="/game-viewer"
+          element={
+            <RequireLeague>
+              <GameViewerPage />
             </RequireLeague>
           }
         />

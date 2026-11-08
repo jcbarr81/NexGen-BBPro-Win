@@ -1,7 +1,7 @@
 # Game replay data spec
 
-Status: **stored record v1 shipped in 8.14.0**; play format (section 4) is a
-draft for the 2D viewer. Backlog #74 in `docs/future_work.md` holds the plan
+Status: **stored record v1 shipped in 8.14.0**; play format (section 4) and
+the 2D viewer shipped in 8.15.0. Backlog #74 in `docs/future_work.md` holds the plan
 and the owner's decisions.
 
 The goal is a viewer for real season and postseason games: a 2D field first,
@@ -83,49 +83,62 @@ entry's `before`. A pinch runner shows as a change between one entry's
   `event_outs`, `hit_adv` ([runner, from, to, error] rows, to 0 = out, 4 =
   scored), `go3`, `tag2`, `tag3`.
 
-## 4. Play format (draft, for the 2D viewer)
+## 4. Play format `nexgen.plays/1` (8.15.0)
 
-One object per play, built by a converter from the stored record:
+Built from the stored record on every request by `services/replay_plays.py`
+(`build_plays`) and served by `GET /boxscore/replay/plays?path=<box score>`
+(gzipped when the browser accepts it: about 250 KB of JSON, 40 KB on the
+wire). Never stored, so a better converter re-renders every old game.
 
-```json
-{
-  "i": 212, "inning": 7, "half": "bottom", "outs": 1,
-  "count": "2-1", "batter": "P0123", "pitcher": "P0456",
-  "bases_before": [null, "P0777", null], "bases_after": ["P0123", null, null],
-  "events": [
-    {"t": 0.00, "type": "release", "by": "P0456"},
-    {"t": 0.42, "type": "plate", "x": 0.3, "z": 2.4, "call": "in_play"},
-    {"t": 0.42, "type": "contact", "ev": 98.1, "la": 14.0, "spray": -12.0},
-    {"t": 2.31, "type": "land", "x": -58.0, "y": 262.0},
-    {"t": 3.40, "type": "field", "by": "LF", "x": -60.0, "y": 268.0},
-    {"t": 4.60, "type": "throw", "from": "LF", "to": "home"},
-    {"t": 4.65, "type": "arrive", "runner": "P0777", "base": "home"},
-    {"t": 4.90, "type": "catch", "by": "C", "base": "home"}
-  ],
-  "result": {"text": "Single to left, runner scores", "runs": 1, "outs": 0}
-}
-```
+Document: `schema`, `game`, `players`, `lineups`, `final`, `field` (the
+park's five fence distances and wall heights at -45/-22.5/0/22.5/45 degrees,
+the bases, the rubber, each position's standing spot) and `plays`, one per
+stored entry:
+
+| Key | Contents |
+| --- | --- |
+| `i`, `inning`, `half`, `batting` | which entry, when, which side bats |
+| `outs`, `outs_after`, `count`, `count_after` | the scoreboard before and after |
+| `batter`, `pitcher`, `bases_before`, `bases_after`, `scored`, `score` | from the record; `score` is after the play |
+| `pa_end`, `key` | the plate appearance ended here; something happened (a result, a runner moved, an out, a run): the *Key plays* mode shows these |
+| `text` | one line, e.g. "Pat Lee grounds into a double play, 6-4-3" |
+| `dur` | seconds the play runs (its last move plus a 0.6 s hold) |
+| `pitch` | type, mph, location, call, swing |
+| `ball` | `[t, x, y, z]` points (sampled every ~0.1 s in flight) |
+| `fielders` | `{position: [[t, x, y], ...]}` for fielders who move; the rest stand at `field.positions` |
+| `runners` | `{who, role (batter/runner), from, to (1-3, 4 scored, 0 out), out_at, replaced, path}` |
+| `cues` | `{t, type, ...}`: pitch, swing, contact, catch, throw, field, tag, out, safe, score, home_run, strikeout, error, past (wild pitch / passed ball), balk |
+| `throws` | `{t, base, by}`: when each throw is caught, where |
 
 - **Field frame:** feet, home plate at the origin, +y toward center field
-  through second base, +x toward the first-base side (right field). This is
-  the frame `physics_sim/ballflight.py` already uses (`_xy`).
-  `playbalance/field_geometry.py` uses a rotated frame (x toward first, y
-  toward third); the converter converts from it, not the other way around.
-- **Timing** comes from what the engine already models: pitch flight =
-  60.5 ft / velocity, hang time and descent from the ball-flight carry table
-  (`ballflight.flight`, scaled so the carry matches the logged `distance`,
-  which works for every engine generation), fielder reaction and speed from
-  the `bb6_*` tuning, throws at `bb6_throw_speed`, runner home-to-first from
-  `bb6_run_time`. The viewer may smooth paths but never changes who is safe
-  or out.
-- **Two viewing modes** (owner's choice): *Key pitch* shows only the pitch
-  each plate appearance's result happened on, between scoreboard updates;
-  *Every pitch* shows every pitch and every play. Both read the same plays.
+  through second base, +x toward first base / right field: the frame of
+  `physics_sim/ballflight.py` (`_xy`).
+- **Timing:** pitch flight = 54 ft / velocity; a batted ball's hang time is
+  the carry table's (`ballflight.flight`) scaled so the carry matches the
+  logged `distance` (any engine generation); a ground ball rolls at the
+  fielding model's roll speed and is fielded where the play model's charge
+  puts the credited fielder; runners 27 ft/s, the batter 4.3 s to first,
+  throws 105-125 ft/s. These are animation speeds, not the engine's.
+- **What the engine decided is never changed.** Who is out, who is safe,
+  where every runner ends and who scores come from the record; the timing
+  bends where it must so an out's throw beats the runner and a safe runner
+  beats the throw. `check_plays` checks exactly that, plus that the outs and
+  runs add up to each half-inning and the final score
+  (`scripts/check_replay_plays.py` runs it over calibration games;
+  `tests/test_replay_plays.py` also checks the checker catches broken plays).
+- **Two viewing modes** (owner's choice): *Key plays* shows the plays with
+  `key` set; *Every pitch* shows all of them. The 2D viewer is
+  `/game-viewer?path=<box score>` (`desktop/src/pages/GameViewerPage.tsx`,
+  `components/game-viewer/FieldCanvas.tsx`, `lib/game-viewer.ts`); the 3D
+  viewer will read the same plays.
 
 ## 5. Known gaps
 
 - The engine logs where a fielder made the play only as a position, not a
   spot; the converter places it from the ball-flight model.
+- A pinch runner or an injured batter's replacement shows up only in the
+  bases trace; the play's runner finishes as the replacement (`replaced`
+  names who he stood in for).
 - Throws are logged only through their outcomes (`tag3`, `go3`, error
   tokens), not as a thrower-to-base chain; relays are inferred.
 - Steals, pickoffs and wild pitches name the runner only through the

@@ -1862,14 +1862,20 @@ Steps:
    after every play, who scored: `play_records["replay_bases"]`, outside the
    hashed pitch log) saved as `boxscores/<type>/<id>.replay.json.gz`;
    `GET /boxscore/replay?path=`. Games are unchanged (pinned digests hold).
-2. **Play converter** (`nexgen.replay/1` -> timed plays, spec section 4):
-   field frame of `ballflight._xy`, timing from the carry table scaled to the
-   logged distance, `bb6_*` fielder/throw/runner speeds; key-pitch filter.
-   Headless checks that every play's outs, runs and bases match the record.
-3. **2D viewer**: top-down field from the park's fences (ParkFences.csv),
-   dots for players and ball, scoreboard, both modes, speed controls; a
-   "Watch" button on box scores and the schedule ("No replay" for older
-   games); phone fallback for 3D later. Tutorial + menu entry.
+2. **DONE 8.15.0: play converter** (`services/replay_plays.py`,
+   `nexgen.replay/1` -> `nexgen.plays/1`, spec section 4): ballflight frame,
+   hang time from the carry table scaled to the logged distance, animation
+   speeds; `check_plays` + `scripts/check_replay_plays.py` (bases, outs, runs,
+   throw-vs-runner order); `GET /boxscore/replay/plays` (gzipped).
+3. **DONE 8.15.0: 2D viewer** (`/game-viewer?path=`, `GameViewerPage.tsx`,
+   `FieldCanvas.tsx`, `lib/game-viewer.ts`): canvas field from the park
+   fence, both modes, speeds, step/replay, jump to a half-inning, spoiler-free
+   play-by-play; **Watch game** on the box score page (`has_replay`). Tutorial
+   `game_viewer` + manual section.
+   Follow-ups: team colours for the two sides' dots (teams.csv has
+   primary/secondary colours; not in the replay yet); a "Watch" link straight
+   from the schedule row; relays and cut-offs are inferred (the engine logs
+   only outcomes); old games (before 8.14.0) have nothing to show.
 4. **3D viewer**: lazy-loaded route in the React app with `three` from npm,
    porting the football viewer's choreo/playback/anim/camera modules
    (cameras: center-field broadcast, behind home, follow ball, free).
@@ -1882,3 +1888,11 @@ Steps:
 6. **Live play** (later): the running engine emits the same play format so
    an owner can watch, then make decisions in, their own game; needs the sim
    lock / auto-run / multi-owner design work noted above.
+
+### Phone width: the status ribbon overflows every page (found 2026-11-08)
+
+At 390 px wide the status ribbon's buttons (CPU offer, deadline) push every
+page to about 500 px, so the page scrolls sideways and the ribbon covers the
+page's top row (Back button). Seen on Season, Box Score and the Game Viewer
+while testing 8.15.0; not caused by any one page. Fix in StatusRibbon: wrap
+or hide the secondary chips under `sm`.

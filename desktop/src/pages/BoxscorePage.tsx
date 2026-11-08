@@ -9,8 +9,8 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, FileText, Loader2 } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, FileText, Loader2, PlayCircle } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
@@ -32,10 +32,17 @@ export function BoxscorePage() {
       title="Box Score"
       subtitle={boxscore.data?.filename ?? path ?? "—"}
     >
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button variant="ghost" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
+        {boxscore.data?.has_replay ? (
+          <Button size="sm" asChild>
+            <Link to={`/game-viewer?path=${encodeURIComponent(path)}`}>
+              <PlayCircle className="h-4 w-4" /> Watch game
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       {!path ? (
