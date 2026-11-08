@@ -268,9 +268,14 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-07, VERSION 8.12.3)
+## 7. Current state — where development was left off (2026-11-07, VERSION 8.12.4)
 
-**Deployed.** 8.12.3 went live on 2026-11-07 (Cloud Run revision
+**Deployed.** 8.12.4 went live on 2026-11-07 (Cloud Run revision
+`nexgen-bbpro-api-00276-2b8` + Firebase Hosting): owner-page polish (dashboard
+streak/last-10 cards fill from the schedule, the hot-and-cold window shows its
+dates, the Season page's owner wording and local-time deadline, the lineup save
+wording) and the false "not listed at LF" lineup warning for `LF|RF` secondary
+positions. Before that, 8.12.3 went live on 2026-11-07 (Cloud Run revision
 `nexgen-bbpro-api-00275-vvm` + Firebase Hosting): only the commissioner can
 sim or advance a multi-owner league. The guard read `league_settings.json`,
 which no league has, so owners could sim; it now also reads the league
