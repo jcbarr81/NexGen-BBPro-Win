@@ -348,6 +348,36 @@ def _phase_gate_for_fa() -> Optional[Dict[str, str]]:
     return None
 
 
+def _open_cpu_offers(
+    player: Any, *, exclude_team_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """The CPU offers on file in the player's open negotiation, best salary first."""
+
+    try:
+        from services.fa_negotiations import get_negotiation
+
+        player_id = str(getattr(player, "player_id", "") or "").strip()
+        negotiation = get_negotiation(player_id) if player_id else None
+    except Exception:
+        return []
+    if not negotiation or negotiation.get("status") != "open":
+        return []
+    rows = []
+    for offer in negotiation.get("offers") or []:
+        team_id = str(offer.get("team_id") or "").strip()
+        try:
+            salary = int(offer.get("annual_salary") or 0)
+        except (TypeError, ValueError):
+            salary = 0
+        if not offer.get("is_cpu") or not team_id or salary <= 0:
+            continue
+        if team_id == (exclude_team_id or ""):
+            continue
+        rows.append({"team_id": team_id, "salary": salary, "years": offer.get("years")})
+    rows.sort(key=lambda r: -int(r["salary"]))
+    return rows
+
+
 def _competing_bids(
     player: Any,
     *,
@@ -359,7 +389,17 @@ def _competing_bids(
     Used by the FA evaluate endpoint to show the human owner who they're
     bidding against. Returns ``[]`` when the finance/FA module is off
     or no team would seriously bid.
+
+    When the player already has an open negotiation holding CPU offers (the
+    bidding window seeds them on its first day), those real offers are shown
+    instead (8.12.5). The prediction below drew the same amounts but paired
+    them with other clubs, so the dialog named clubs that had not bid and
+    left out the ones that had. Other owners' offers are never listed.
     """
+
+    real = _open_cpu_offers(player, exclude_team_id=exclude_team_id)
+    if real:
+        return real[:limit]
 
     try:
         from services.finance_ai import build_cpu_free_agent_bid_book
