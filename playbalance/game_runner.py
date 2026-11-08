@@ -1287,6 +1287,57 @@ def _tracker_rotation(
         return []
 
 
+def _attach_game_replay(
+    meta: dict[str, object],
+    result: object,
+    *,
+    home_id: str,
+    away_id: str,
+    home_name: str,
+    away_name: str,
+    park_name: str | None,
+    seed: int | None,
+    date_token: str | None,
+    postseason: bool,
+    generation: object,
+    players_lookup: Mapping[str, object],
+) -> None:
+    """Put the game's encoded replay in ``meta`` (services.game_replay).
+
+    Presentation only: it reads the finished result, and a failure leaves the
+    game without a replay rather than failing a game that has been played.
+    """
+
+    from services import game_replay
+
+    if not game_replay.replay_enabled():
+        return
+    try:
+        from utils.park_utils import park_altitude_for_name
+
+        altitude = park_altitude_for_name(park_name) if park_name else 0.0
+    except Exception:
+        altitude = None
+    try:
+        replay = game_replay.build_replay(
+            result,
+            home_id=home_id,
+            away_id=away_id,
+            home_name=home_name,
+            away_name=away_name,
+            park_name=park_name,
+            park_altitude_ft=altitude,
+            seed=seed,
+            game_date=date_token,
+            postseason=postseason,
+            engine_generation=generation,
+            players_lookup=players_lookup,
+        )
+        meta[game_replay.META_KEY] = game_replay.encode_replay(replay)
+    except Exception:
+        pass
+
+
 def _run_physics_game(
     *,
     home_id: str,
@@ -1538,6 +1589,20 @@ def _run_physics_game(
     bullpen_meta = _collect_bullpen_usage_reason_meta(home_id, home_state, away_id, away_state)
     if bullpen_meta:
         meta["bullpen_usage_reasons"] = bullpen_meta
+    _attach_game_replay(
+        meta,
+        result,
+        home_id=home_id,
+        away_id=away_id,
+        home_name=home_name,
+        away_name=away_name,
+        park_name=park_name,
+        seed=seed,
+        date_token=date_token,
+        postseason=postseason,
+        generation=generation,
+        players_lookup=players_lookup,
+    )
 
     injury_events = metadata.get("injury_events", []) if isinstance(metadata, dict) else []
     if not isinstance(injury_events, list):

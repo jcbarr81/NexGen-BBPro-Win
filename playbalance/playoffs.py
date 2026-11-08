@@ -1338,6 +1338,11 @@ def _simulate_next_series_game(
             low_wins += 1
 
     box_path = None
+    # The game's replay rides in its meta; the bracket stores the meta, so it
+    # comes out here and is saved beside the box score (services.game_replay).
+    from services import game_replay as _replay
+
+    replay_blob = _replay.pop_encoded_replay(extra)
     # Box score ids run on the stored game count, so a game replayed over a
     # stored tie gets its own file.
     game_id = f"{year}_{round_name}_S{series_index}_G{len(matchup.games)}_{away}_at_{home}"
@@ -1349,6 +1354,7 @@ def _simulate_next_series_game(
             from services import boxscore_diagnostics as _diag
 
             _diag.record_success()
+            _replay.save_game_replay(box_path, replay_blob)
         except Exception as exc:
             box_path = None
             try:

@@ -6186,6 +6186,37 @@ def simulate_game(
     # one row per ball in play (``bip_chances``) and per error roll
     # (``error_chances``). Read by nothing in the engine, no draws.
     error_records: List[tuple] = []
+    # Game replay (8.14.0): pitch_log index -> who stood on first, second and
+    # third before the entry's play ("before"), after it ("after") and the
+    # runners who scored on it ("scored"), so a replay can show who ran
+    # where. In play_records, not the pitch log, like the records above.
+    # Read by nothing in the engine, no draws.
+    replay_bases: Dict[int, Dict[str, Any]] = {}
+    replay_scored: List[str] = []
+
+    def _replay_ids(bases: "BaseState") -> List[str | None]:
+        return [
+            runner.player_id if runner is not None else None
+            for runner in (bases.first, bases.second, bases.third)
+        ]
+
+    def _replay_open(bases: "BaseState", before: List[str | None] | None = None) -> None:
+        # Called just before an entry is appended to the pitch log.
+        replay_bases[len(pitch_log)] = {
+            "before": list(before) if before is not None else _replay_ids(bases)
+        }
+
+    def _replay_close(bases: "BaseState") -> None:
+        # The last entry's play is over: the bases it left and who scored.
+        index = len(pitch_log) - 1
+        if index < 0:
+            return
+        record = replay_bases.setdefault(index, {})
+        record.setdefault("after", _replay_ids(bases))
+        if replay_scored:
+            record.setdefault("scored", []).extend(replay_scored)
+            replay_scored.clear()
+
     chance_log = tuning.get("fielding_chance_log", 0.0) >= 0.5
     bip_chances: List[tuple] = []
     error_chances: List[tuple] = []
@@ -6613,6 +6644,7 @@ def simulate_game(
             line.inning_runs += runs_scored
             half_inning_runs += runs_scored
             if scored_runners:
+                replay_scored.extend(runner.player_id for runner in scored_runners)
                 for runner in scored_runners:
                     _batter_line(offense_state, runner).r += 1
                     responsible_line = runner_pitchers.pop(
@@ -6870,6 +6902,7 @@ def simulate_game(
                 pitch_log[-1]["pa_result"] = token
 
         def finalize_half_inning() -> None:
+            _replay_close(bases)
             _close_open_pa()
             lob = 0
             for runner in (bases.first, bases.second, bases.third):
@@ -6888,6 +6921,7 @@ def simulate_game(
                 inning_outs_home.append(outs)
 
         def post_at_bat(pitcher_state: PitcherState) -> None:
+            _replay_close(bases)
             if walkoff or outs >= 3 or not pitch_log:
                 return
             if batting_team == "away":
@@ -7003,6 +7037,7 @@ def simulate_game(
                 bat_score=offense_score,
                 fld_score=defense_score,
             )
+            replay_pa_before = _replay_ids(bases)
             at_bat_over = False
             if _should_intentional_walk(
                 bases=bases,
@@ -7038,6 +7073,7 @@ def simulate_game(
                 record_runs(runs_scored, line, scored)
                 if scored:
                     batter_line.rbi += len(scored)
+                _replay_open(bases, replay_pa_before)
                 pitch_log.append(
                     {
                         "outcome": "ibb",
@@ -7162,6 +7198,7 @@ def simulate_game(
                         batter_line.rbi += rbi_runs
                 if events:
                     entry["runner_event"] = "+".join(events)
+                _replay_open(bases, replay_pa_before)
                 pitch_log.append(entry)
                 post_at_bat(pitcher_state)
                 continue
@@ -7283,6 +7320,10 @@ def simulate_game(
                     # Audit L18: only the PA's first pitch carries the state.
                     entry.update(pa_start_info)
                     pa_start_info = None
+                # The previous pitch of this plate appearance is over (a
+                # no-op when it ended the last one: post_at_bat closed it).
+                _replay_close(bases)
+                _replay_open(bases)
                 pitch_log.append(entry)
                 # Release 4 (W1): the bases and outs before this pitch's play,
                 # stamped on the entry when it ends with a runner_event (the
@@ -9228,6 +9269,7 @@ def simulate_game(
             },
             "fld_pos": fielded_positions,
             "errors": error_records,
+            "replay_bases": replay_bases,
             # None unless the game was played with fielding_chance_log on.
             "bip_chances": bip_chances if chance_log else None,
             "error_chances": error_chances if chance_log else None,

@@ -1546,7 +1546,7 @@ def _persist_post_sim_state(
     try:
         from playbalance.schedule_generator import save_schedule
         from playbalance.simulation import save_boxscore_html
-        from services import boxscore_diagnostics
+        from services import boxscore_diagnostics, game_replay
 
         played_set = {str(d) for d in played_dates} | {
             str(d) for d in (partial_dates or [])
@@ -1566,6 +1566,9 @@ def _persist_post_sim_state(
                 # — the boxscore API serves by path, and embedding megabytes
                 # of HTML in schedule.csv made every save O(season).
                 html = game.pop("boxscore_html", None)
+                # The game's replay (services.game_replay) rides in its meta;
+                # popped here so it is not held for the rest of the run.
+                replay_blob = game_replay.pop_encoded_replay(game.get("extra"))
                 game_id = (
                     f"{game.get('date', '')}_{game.get('away', '')}"
                     f"_at_{game.get('home', '')}"
@@ -1584,6 +1587,7 @@ def _persist_post_sim_state(
                             "season", str(html), game_id
                         )
                         boxscore_diagnostics.record_success()
+                        game_replay.save_game_replay(game["boxscore"], replay_blob)
                     except Exception as exc:
                         # This was `pass`. Not one box score has ever been written
                         # in production and the reason died right here.

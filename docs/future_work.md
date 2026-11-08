@@ -1836,3 +1836,49 @@ only if owners ask for it after replays ship.
 **Related quick fix:** `/live` has no menu entry (`desktop/src/lib/route-index.ts`)
 or tutorial, so owners can't find the exhibition viewer at all; it opens the
 promo video.
+
+### 74 expanded: 2D, then 3D game viewer (owner decisions, 2026-11-07)
+
+The owner wants real games shown on a field, 2D first and then 3D with
+Mixamo-animated players like the football game's viewer
+(`C:\dev\fbsim\gridiron-3d`: per-play event JSON, a choreograph step to a
+timed plan, a playback that only reads it, Blender merge of Mixamo clips,
+headless checker). Long-term goal: owners manage and play their own games
+live (the "Not now" above becomes the end state, not a no). Spec:
+`docs/replay/REPLAY_DATA_SPEC.md`. No 3D work existed before this; the only
+earlier attempt was the text-only `/live` page.
+
+Decisions: (1) real season and postseason games, exhibitions are only the
+dev test bed; (2) 2D first, then 3D; (3) two viewing modes, *Key pitch*
+(only the pitch each plate appearance's result happened on) and *Every
+pitch* (every pitch, every play); (4) free assets first (Mixamo stock
+character and clips, on the standard Mixamo skeleton so a bought model swaps
+in by re-running the merge script), buy better ones once the design is
+settled; (5) MINOR bump for step 1.
+
+Steps:
+1. **DONE 8.14.0: keep the data.** Each season/postseason game's pitch log,
+   play records, seed and a new bases trace (who was on each base before and
+   after every play, who scored: `play_records["replay_bases"]`, outside the
+   hashed pitch log) saved as `boxscores/<type>/<id>.replay.json.gz`;
+   `GET /boxscore/replay?path=`. Games are unchanged (pinned digests hold).
+2. **Play converter** (`nexgen.replay/1` -> timed plays, spec section 4):
+   field frame of `ballflight._xy`, timing from the carry table scaled to the
+   logged distance, `bb6_*` fielder/throw/runner speeds; key-pitch filter.
+   Headless checks that every play's outs, runs and bases match the record.
+3. **2D viewer**: top-down field from the park's fences (ParkFences.csv),
+   dots for players and ball, scoreboard, both modes, speed controls; a
+   "Watch" button on box scores and the schedule ("No replay" for older
+   games); phone fallback for 3D later. Tutorial + menu entry.
+4. **3D viewer**: lazy-loaded route in the React app with `three` from npm,
+   porting the football viewer's choreo/playback/anim/camera modules
+   (cameras: center-field broadcast, behind home, follow ball, free).
+5. **Assets**: Mixamo inventory (baseball pitching, swings, bunt, catcher
+   crouch, umpire, idles + run/sprint/throw/catch); gaps likely ground-ball
+   fielding, overhead fly catches, slides, tags. One uniformed character with
+   team-colour masks; bat and glove on hand bones. Apply the football
+   lessons (pin hips to one shared value, `SkeletonUtils.clone`, never
+   `skeleton.pose()`, strip `mixamorig` prefixes, unit/facing wrap).
+6. **Live play** (later): the running engine emits the same play format so
+   an owner can watch, then make decisions in, their own game; needs the sim
+   lock / auto-run / multi-owner design work noted above.

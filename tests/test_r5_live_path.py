@@ -179,6 +179,13 @@ def live_games(root: Path, repo: Path = REPO, *, lineups: bool) -> list[dict]:
                 home, away, seed=seed, game_date=date, engine="physics"
             )
             assert len(captured) == before + 1
+            # 8.14.0: the game's replay rides in the reported meta. It is a
+            # copy of the pitch log hashed above (services.game_replay), so it
+            # stays out of the digest; it must be there, for every game.
+            from services.game_replay import META_KEY
+
+            meta = dict(meta)
+            assert meta.pop(META_KEY, None), "the game kept no replay"
             captured[-1]["game"] = {"date": date, "home": home, "away": away}
             captured[-1]["reported"] = {
                 "home_runs": home_runs, "away_runs": away_runs, "meta": meta,

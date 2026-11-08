@@ -330,9 +330,10 @@ def test_the_records_are_beside_the_game_not_in_it(played):
 
     # Release 6a (fielding) added the errors charged and, under
     # fielding_chance_log, the chance rows (None here: the log is off).
+    # 8.14.0 added the bases trace a game replay reads (replay_bases).
     assert set(played.play_records) == {
-        "starting_positions", "fld_pos", "errors", "bip_chances",
-        "error_chances", "babip_scale",
+        "starting_positions", "fld_pos", "errors", "replay_bases",
+        "bip_chances", "error_chances", "babip_scale",
     }
     assert played.play_records["bip_chances"] is None
     assert "starting_positions" not in played.metadata

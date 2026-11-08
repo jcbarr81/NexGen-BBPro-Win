@@ -91,3 +91,35 @@ def get_boxscore(
             detail=f"Failed to read boxscore: {exc}",
         ) from exc
     return {"path": str(resolved), "filename": resolved.name, "html": html}
+
+
+@router.get("/replay")
+def get_game_replay(
+    path: str = Query(
+        ...,
+        description=(
+            "The game's stored box score path (any form /boxscore accepts); "
+            "the replay is the file saved beside it"
+        ),
+    ),
+) -> dict:
+    """The pitch-by-pitch replay saved beside a box score (8.14.0;
+    services.game_replay, docs/replay/REPLAY_DATA_SPEC.md). 404 for a game
+    played before replays were kept."""
+
+    from services.game_replay import decode_replay, replay_path_for_boxscore
+
+    resolved = _safe_resolve(path)
+    target = replay_path_for_boxscore(resolved)
+    if not target.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No replay was kept for this game.",
+        )
+    try:
+        return decode_replay(target.read_bytes())
+    except (OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read the replay: {exc}",
+        ) from exc
