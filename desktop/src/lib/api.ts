@@ -878,7 +878,11 @@ export interface TradeCpuEvaluation {
   timeline_delta: number;
   strategy_profile: string;
   competitive_window: string;
+  /** The evaluator's own notes (scores, deltas): for the commissioner. */
   reasons: string[];
+  /** The same verdict in plain words, as the acceptance meter says it
+   * (8.12.5; missing on trades decided before then). */
+  owner_reasons?: string[];
 }
 
 export interface TradeReversal {
@@ -3303,7 +3307,15 @@ export const api = {
     give_pick_ids?: string[];
     receive_pick_ids?: string[];
   }) =>
-    apiRequest<{ trade_id: string; from_team: string; to_team: string; status: string }>(
+    apiRequest<{
+      trade_id: string;
+      from_team: string;
+      to_team: string;
+      status: string;
+      /** A CPU club decides at once: accept, reject, or counter. */
+      cpu_response?: { team_id: string; action: string; reasons?: string[] } | null;
+      counter_trade_id?: string | null;
+    }>(
       "/trades",
       { method: "POST", body: payload },
     ),

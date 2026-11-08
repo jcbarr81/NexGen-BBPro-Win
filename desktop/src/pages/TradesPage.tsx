@@ -85,6 +85,8 @@ const STATUS_ORDER: Array<{ key: string; label: string }> = [
   { key: "vetoed", label: "Vetoed" },
 ];
 
+type ProposeResult = Awaited<ReturnType<typeof api.proposeTrade>>;
+
 interface ProposeTradePrefill {
   fromTeam?: string;
   toTeam?: string;
@@ -493,7 +495,27 @@ export function TradesPage() {
         defaultGivePlayers={prefill?.givePlayers || []}
         defaultReceivePlayers={prefill?.receivePlayers || []}
         teams={teams.data ?? []}
-        onProposed={refresh}
+        lockFrom={!!teamId && !isAdmin}
+        onProposed={(result) => {
+          refresh();
+          // A CPU club answers at once: say what it did and open the tab
+          // that now holds the deal, so the dialog never just closes.
+          const club = result.to_team;
+          const action = result.cpu_response?.action;
+          if (action === "accept" && result.status === "accepted") {
+            toast.success(`${club} accepted the trade`);
+            setTradesTab("accepted");
+          } else if (action === "counter" && result.counter_trade_id) {
+            toast.info(`${club} sent back a counter-offer — see Offers to you`);
+            setTradesTab("inbox");
+          } else if (action === "reject" || action === "counter") {
+            toast.info(`${club} turned down the offer`);
+            setTradesTab("rejected");
+          } else {
+            toast.success(`Offer sent to ${club}`);
+            setTradesTab("pending");
+          }
+        }}
       />
       <VetoDialog
         tradeId={vetoTarget}
@@ -737,7 +759,9 @@ function TradeCard({
           highlight={toActive}
         />
       </CardContent>
-      {trade.cpu_eval && <CpuEvalBlock evaluation={trade.cpu_eval} />}
+      {trade.cpu_eval && (
+        <CpuEvalBlock evaluation={trade.cpu_eval} isAdmin={actions.isAdmin} />
+      )}
       {status === "reversed" && (
         <div className="flex items-center gap-2 border-t border-border/60 bg-surfaceAlt/40 px-6 py-2 text-xs text-muted">
           <RotateCcw className="h-3 w-3" />
@@ -1076,7 +1100,17 @@ function iconFor(status: string) {
   return Clock;
 }
 
-function CpuEvalBlock({ evaluation }: { evaluation: TradeCpuEvaluation }) {
+function CpuEvalBlock({
+  evaluation,
+  isAdmin,
+}: {
+  evaluation: TradeCpuEvaluation;
+  isAdmin: boolean;
+}) {
+  // Owners read the plain-words reasons the acceptance meter uses; the
+  // commissioner also gets the score line and the evaluator's own notes.
+  const plain = evaluation.owner_reasons ?? [];
+  const reasons = !isAdmin && plain.length > 0 ? plain : evaluation.reasons;
   const action = evaluation.action;
   const tone =
     action === "accept"
@@ -1096,15 +1130,17 @@ function CpuEvalBlock({ evaluation }: { evaluation: TradeCpuEvaluation }) {
         <div className="font-semibold uppercase tracking-wider">
           {evaluation.team_id} {verb}
         </div>
-        <div className="font-mono tabular-nums text-[10px] opacity-80">
-          score {evaluation.total_score.toFixed(1)} / threshold{" "}
-          {evaluation.threshold.toFixed(1)} ·{" "}
-          {evaluation.strategy_profile} / {evaluation.competitive_window}
-        </div>
+        {isAdmin && (
+          <div className="font-mono tabular-nums text-[10px] opacity-80">
+            score {evaluation.total_score.toFixed(1)} / threshold{" "}
+            {evaluation.threshold.toFixed(1)} ·{" "}
+            {evaluation.strategy_profile} / {evaluation.competitive_window}
+          </div>
+        )}
       </div>
-      {evaluation.reasons.length > 0 && (
+      {reasons.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-5 leading-snug">
-          {evaluation.reasons.slice(0, 4).map((reason, i) => (
+          {reasons.slice(0, 4).map((reason, i) => (
             <li key={i}>{reason}</li>
           ))}
         </ul>
@@ -1305,6 +1341,7 @@ function ProposeTradeDialog({
   defaultGivePlayers = [],
   defaultReceivePlayers = [],
   teams,
+  lockFrom = false,
   onProposed,
 }: {
   open: boolean;
@@ -1314,7 +1351,9 @@ function ProposeTradeDialog({
   defaultGivePlayers?: string[];
   defaultReceivePlayers?: string[];
   teams: Team[];
-  onProposed: () => void;
+  /** An owner proposes for their own club only (the server insists too). */
+  lockFrom?: boolean;
+  onProposed: (result: ProposeResult) => void;
 }) {
   const [fromTeam, setFromTeam] = useState(defaultFromTeam);
   const [toTeam, setToTeam] = useState(defaultToTeam);
@@ -1428,9 +1467,9 @@ function ProposeTradeDialog({
         give_pick_ids: givePickIds,
         receive_pick_ids: receivePickIds,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setError(null);
-      onProposed();
+      onProposed(result);
       setGiveIds([]);
       setReceiveIds([]);
       setGivePickIds([]);
@@ -1490,6 +1529,7 @@ function ProposeTradeDialog({
               teams={teams}
               exclude={toTeam}
               onChange={changeFromTeam}
+              disabled={lockFrom}
             />
             <TeamPicker
               label="To"
@@ -1889,12 +1929,14 @@ function TeamPicker({
   teams,
   exclude,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
   teams: Team[];
   exclude?: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
@@ -1904,7 +1946,8 @@ function TeamPicker({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-10 rounded-lg border border-border bg-canvas/60 px-3 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
+        disabled={disabled}
+        className="h-10 rounded-lg disabled:cursor-not-allowed disabled:opacity-80 border border-border bg-canvas/60 px-3 text-sm text-ink focus:border-amber focus:outline-none focus:ring-2 focus:ring-amber/40"
       >
         <option value="">— select —</option>
         {teams

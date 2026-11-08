@@ -218,6 +218,38 @@ def _load_cpu_evals() -> Dict[str, Dict[str, Any]]:
     return {str(k): v for k, v in payload.items() if isinstance(v, dict)}
 
 
+def _cpu_response(evaluation: Any) -> Dict[str, Any]:
+    """A CPU club's verdict as stored with the trade and sent to the client.
+
+    ``reasons`` are the evaluator's own notes (scores and deltas), kept for the
+    commissioner; ``owner_reasons`` say the same in plain words, the ones the
+    acceptance meter shows, and are what an owner sees on the trade (8.12.5).
+    """
+
+    from services.cpu_trade_evaluator import owner_facing_reasons
+
+    try:
+        owner_reasons = owner_facing_reasons(evaluation)
+    except Exception:
+        owner_reasons = []
+    return {
+        "team_id": evaluation.team_id,
+        "action": evaluation.action,
+        "total_score": float(evaluation.total_score),
+        "threshold": float(evaluation.threshold),
+        "value_delta": float(evaluation.value_delta),
+        "fit_delta": float(evaluation.fit_delta),
+        "timeline_delta": float(evaluation.timeline_delta),
+        "strategy_profile": evaluation.strategy_profile,
+        "competitive_window": evaluation.competitive_window,
+        "reasons": [
+            (str(getattr(r, "message", "")).strip() or str(r))
+            for r in (evaluation.reasons or [])
+        ],
+        "owner_reasons": owner_reasons,
+    }
+
+
 def _persist_cpu_eval(trade_id: str, evaluation: Dict[str, Any]) -> None:
     import json
 
@@ -489,21 +521,7 @@ def propose_trade(
         if is_cpu_owned_team(trade.to_team):
             evaluation = evaluate_cpu_trade_offer(trade)
             if evaluation is not None:
-                cpu_response = {
-                    "team_id": evaluation.team_id,
-                    "action": evaluation.action,
-                    "total_score": float(evaluation.total_score),
-                    "threshold": float(evaluation.threshold),
-                    "value_delta": float(evaluation.value_delta),
-                    "fit_delta": float(evaluation.fit_delta),
-                    "timeline_delta": float(evaluation.timeline_delta),
-                    "strategy_profile": evaluation.strategy_profile,
-                    "competitive_window": evaluation.competitive_window,
-                    "reasons": [
-                        (str(getattr(r, "message", "")).strip() or str(r))
-                        for r in (evaluation.reasons or [])
-                    ],
-                }
+                cpu_response = _cpu_response(evaluation)
                 _persist_cpu_eval(trade.trade_id, cpu_response)
 
                 if evaluation.action == "accept":
@@ -954,21 +972,7 @@ def counter_trade(
         if is_cpu_owned_team(counter.to_team):
             evaluation = evaluate_cpu_trade_offer(counter)
             if evaluation is not None:
-                cpu_response = {
-                    "team_id": evaluation.team_id,
-                    "action": evaluation.action,
-                    "total_score": float(evaluation.total_score),
-                    "threshold": float(evaluation.threshold),
-                    "value_delta": float(evaluation.value_delta),
-                    "fit_delta": float(evaluation.fit_delta),
-                    "timeline_delta": float(evaluation.timeline_delta),
-                    "strategy_profile": evaluation.strategy_profile,
-                    "competitive_window": evaluation.competitive_window,
-                    "reasons": [
-                        (str(getattr(r, "message", "")).strip() or str(r))
-                        for r in (evaluation.reasons or [])
-                    ],
-                }
+                cpu_response = _cpu_response(evaluation)
                 _persist_cpu_eval(counter.trade_id, cpu_response)
                 if evaluation.action == "accept":
                     counter.status = "accepted"
