@@ -376,8 +376,10 @@ def test_a_catcher_call_up_never_options_the_backup_shortstop():
 
 
 def test_a_catcher_call_up_never_options_the_last_player_at_a_position():
-    # The weakest hitters are the only 2B, 3B and LF and the spare SS / CF;
-    # the next weakest, a second first baseman, goes.
+    # The weakest hitters are the only 2B and 3B and the spare SS / CF; the
+    # next weakest goes. 8.15.2: the only listed LF ("blf") is no longer the
+    # last player at a position -- the CFs and RFs cover left -- so he is
+    # that next weakest, ahead of a second first baseman.
     regulars = [h for h in _FULL_NINE if h[1] not in {"2B", "3B", "LF"}]
     hitters = regulars + [
         ("b2b", "2B", 20), ("b3b", "3B", 21), ("blf", "LF", 22), ("bss", "SS", 30),
@@ -386,8 +388,8 @@ def test_a_catcher_call_up_never_options_the_last_player_at_a_position():
     players, roster = _club(hitters, aaa=[("mC", "C", 30)])
     moves = _upkeep(players, roster)
     assert ("mC", "aaa", "act") in moves
-    assert ("dh1", "act", "aaa") in moves
-    for protected in ("b2b", "b3b", "blf", "bss", "bcf"):
+    assert ("blf", "act", "aaa") in moves
+    for protected in ("b2b", "b3b", "bss", "bcf", "dh1"):
         assert protected in roster.act
 
 

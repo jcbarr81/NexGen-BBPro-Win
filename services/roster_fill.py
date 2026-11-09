@@ -43,6 +43,7 @@ __all__ = [
     "HITTER_FLOOR",
     "is_pitcher",
     "positions_of",
+    "covers_of",
     "can_play",
     "player_score",
     "callup_candidates",
@@ -131,6 +132,18 @@ def positions_of(player: object) -> List[str]:
     return out
 
 
+def covers_of(player: object) -> List[str]:
+    """:func:`positions_of` plus what those cover without listing it: a CF
+    plays LF and RF, an RF plays LF (8.15.2, utils.position_coverage).
+    Listed positions stay first. Who-can-play-where decisions read this;
+    ``positions_of`` stays the listed positions."""
+
+    from utils.position_coverage import implied_positions
+
+    listed = positions_of(player)
+    return listed + implied_positions(listed)
+
+
 def _split_positions(value: object) -> List[str]:
     text = str(value or "").strip()
     if not text:
@@ -153,7 +166,7 @@ def can_play(player: object, position: str) -> bool:
     position = str(position or "").strip().upper()
     if position == "DH":
         return True
-    return position in positions_of(player)
+    return position in covers_of(player)
 
 
 def player_score(player: object) -> float:
@@ -413,7 +426,7 @@ def _protected_hitters(roster: object, players: Mapping[str, object]) -> set:
 
     present = _hitters(roster.act, players)
     healthy = [p for p in present if _available(players.get(p))]
-    can = {pid: set(positions_of(players.get(pid))) for pid in present}
+    can = {pid: set(covers_of(players.get(pid))) for pid in present}
     protected = set()
     for group_ids in (healthy, present):
         for pos in _REQUIRED_POSITIONS:
@@ -456,7 +469,7 @@ def _spare_callup(
     if cands:
         return cands[0]
     covering = sum(
-        1 for p in present if set(positions_of(players.get(p))) & set(group)
+        1 for p in present if set(covers_of(players.get(p))) & set(group)
     )
     if covering > len(group):
         return None

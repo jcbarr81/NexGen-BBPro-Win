@@ -225,7 +225,9 @@ PINNED = {
         "f90888ccd48f60a6a8a86f9bf0bc5f8df60a1b569c46bbf2e5b3f8a14c0c6037",
         "9e39134a6d809b4cc6043559d3a2fcd74cb206f2a457baaee114ff75b23feeba",
         "312a571e3dc3466dde6e587185a140c335622c4fc71b262615372f1980667708",
-        "446051238b7fee407cf021e69a64543fe67db59066f8e102e35e644cab3973e3",
+        # 8.15.2: a CF / RF now covers LF, so the CPU depth chart lists them
+        # in left and one in-game substitution in this game changed.
+        "60f4f6e361cb937186b155616a74b8536a51fa34eefd34bf170cb4499f21983e",
     ],
     "auto_fill": [
         "790b72110a439240d64c6d25f5f757b9d54bdb6db76388419603d67f594fc14d",

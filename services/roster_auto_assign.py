@@ -276,12 +276,18 @@ def _pitcher_score(p) -> float:
     return 0.35 * control + 0.35 * movement + 0.2 * endurance + 0.1 * arm
 
 
-def _eligible_positions(player: object) -> Set[str]:
+def _eligible_positions(player: object, *, implied: bool = True) -> Set[str]:
     """Return defensive positions the hitter can play.
 
     A player is considered eligible for their ``primary_position`` and any
     entries in ``other_positions``. Values are normalized to uppercase.
     Pitchers are excluded by the caller.
+
+    ``implied`` (8.15.2) adds what those cover without listing it -- a CF
+    covers LF and RF, an RF covers LF -- for the "is it legal" questions
+    (gaps mode). A full rebuild passes ``implied=False``: building a roster
+    from scratch it still looks for a player who lists the spot, which is
+    better baseball and legal either way.
     """
 
     primary = str(getattr(player, "primary_position", "")).upper()
@@ -291,7 +297,12 @@ def _eligible_positions(player: object) -> Set[str]:
         if not pos:
             continue
         elig.add(str(pos).upper())
-    return elig
+    if not implied:
+        return elig
+    # A CF covers LF and RF, an RF covers LF (8.15.2, utils.position_coverage).
+    from utils.position_coverage import with_implied
+
+    return with_implied(elig)
 
 
 def _pick_active_roster(
@@ -366,7 +377,7 @@ def _pick_active_roster(
             pid = getattr(h, "player_id")
             if pid in selected_ids:
                 continue
-            elig = _eligible_positions(h)
+            elig = _eligible_positions(h, implied=False)
             if pos in elig:
                 candidate = h
                 break
@@ -397,7 +408,7 @@ def _pick_active_roster(
         for h in hitters_sorted:
             if getattr(h, "player_id") in selected_ids or is_catcher(h):
                 continue
-            if _eligible_positions(h) & set(positions):
+            if _eligible_positions(h, implied=False) & set(positions):
                 return h
         return None
 
@@ -406,9 +417,9 @@ def _pick_active_roster(
             break
         key = group[0]
         pick = None
-        if sum(1 for h in active_hitters if key in _eligible_positions(h)) < 2:
+        if sum(1 for h in active_hitters if key in _eligible_positions(h, implied=False)) < 2:
             pick = _best_unselected((key,))
-        covering = sum(1 for h in active_hitters if _eligible_positions(h) & set(group))
+        covering = sum(1 for h in active_hitters if _eligible_positions(h, implied=False) & set(group))
         for pos in group[1:]:
             if pick is not None or covering > len(group):
                 break
@@ -1054,7 +1065,7 @@ def auto_assign_team(
 
             def _has_assigned_eligible(pos: str) -> bool:
                 return any(
-                    pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
+                    pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid], implied=False)
                     for pid in assigned
                 )
 
@@ -1064,7 +1075,7 @@ def auto_assign_team(
                 candidates = [
                     pool_by_id[pid]
                     for pid in released
-                    if pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid])
+                    if pid in pool_by_id and pos in _eligible_positions(pool_by_id[pid], implied=False)
                 ]
                 if not candidates:
                     continue  # genuinely nobody in the org can play here

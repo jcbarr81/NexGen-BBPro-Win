@@ -736,7 +736,10 @@ save time (a hard 422 with an inline error list) and live as you edit:
   10) and at most 13 active pitchers (14 in September) are warnings on a single
   move and errors at the season check; LOW age gate (27+) is a hard error;
   minimum 11 position players on ACT and defensive coverage are checked before
-  every game.
+  every game. Coverage counts a center fielder for left and right field and a
+  right fielder for left field, whether or not he lists them; a left fielder
+  covers only left. He still fields a spot he doesn't list with the usual
+  out-of-position penalty.
 - **Trades** — each side ≥1 asset, pick-trading enabled, picks in the tradable
   pool, post-trade caps, payroll policy.
 

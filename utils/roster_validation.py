@@ -28,7 +28,10 @@ def _eligible_positions(player: BasePlayer) -> Set[str]:
             positions.add(str(pos).upper())
     # Exclude pitchers
     positions.discard("P")
-    return positions
+    # A CF covers LF and RF, an RF covers LF (utils.position_coverage).
+    from utils.position_coverage import with_implied
+
+    return with_implied(positions)
 
 
 def missing_positions(roster: Roster, players_by_id: Mapping[str, BasePlayer]) -> list[str]:

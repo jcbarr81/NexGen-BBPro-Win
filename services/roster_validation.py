@@ -128,7 +128,11 @@ def _player_positions(player: Mapping[str, Any]) -> Set[str]:
         positions.add(primary)
     positions.update(others)
     positions.discard("P")
-    return positions
+    # A CF covers LF and RF, an RF covers LF (8.15.2): coverage, the lineup's
+    # "not listed at" warning and the depth chart all read this.
+    from utils.position_coverage import with_implied
+
+    return with_implied(positions)
 
 
 def _is_pitcher(player: Mapping[str, Any]) -> bool:
