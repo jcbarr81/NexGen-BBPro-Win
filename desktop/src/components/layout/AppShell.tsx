@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { StatusRibbon } from "./StatusRibbon";
+import { ActingForTeamBanner } from "./ActingForTeamBanner";
 import { useHotkey } from "@/lib/use-hotkey";
 import { recordNavigation } from "@/lib/nav-history";
 import { useLayoutEditStore } from "@/lib/layout-edit-store";
@@ -63,6 +64,7 @@ export function AppShell({
             aria-hidden
           />
         )}
+        <ActingForTeamBanner />
         <StatusRibbon />
         <main className="min-h-0 flex-1 overflow-auto px-3 py-4 sm:px-5 lg:px-8 lg:py-6">
           {children}

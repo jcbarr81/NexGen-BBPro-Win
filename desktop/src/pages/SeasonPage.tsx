@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -34,6 +34,7 @@ import {
   Play,
   Sparkles,
   Trophy,
+  UserCog,
   UserMinus,
   X,
 } from "lucide-react";
@@ -1830,6 +1831,8 @@ function ReadinessBoard({
   preseasonDraft?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const setSelectedTeam = useAuthStore((s) => s.setSelectedTeam);
 
   const cpuFill = useMutation({
     mutationFn: (tid: string) => api.seasonReadinessCpuFill(tid),
@@ -1909,17 +1912,30 @@ function ReadinessBoard({
                 )}
                 <ReadinessNotes teamId={t.team_id} notes={t.notes} />
               </div>
-              {!t.ready && (
+              <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="shrink-0"
-                  disabled={cpuFill.isPending}
-                  onClick={() => cpuFill.mutate(t.team_id)}
+                  variant={t.ready ? "ghost" : "primary"}
+                  title={`Open ${t.team_id}'s roster and make its moves yourself`}
+                  onClick={() => {
+                    setSelectedTeam(t.team_id);
+                    navigate("/roster");
+                  }}
                 >
-                  CPU handle it
+                  <UserCog className="h-3.5 w-3.5" />
+                  Manage team
                 </Button>
-              )}
+                {!t.ready && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={cpuFill.isPending}
+                    onClick={() => cpuFill.mutate(t.team_id)}
+                  >
+                    CPU handle it
+                  </Button>
+                )}
+              </div>
             </div>
           ))}
         </div>

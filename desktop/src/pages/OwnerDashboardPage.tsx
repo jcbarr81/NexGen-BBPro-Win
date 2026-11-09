@@ -290,25 +290,9 @@ export function OwnerDashboardPage() {
       }
     >
       <div className="space-y-6 animate-fade-in">
-        {browsingAsCommissioner && (
-          <Card className="border-amber/40 bg-amber/5">
-            <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
-              <div className="text-sm">
-                <span className="font-semibold">Running as commissioner.</span>{" "}
-                <span className="text-muted">
-                  You haven't claimed a team — you're browsing the league.
-                </span>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setSelectedTeam(null)}
-              >
-                Claim a team
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+        {/* Browsing as a commissioner with no team: the app-wide "Acting for"
+            banner (ActingForTeamBanner) says so on every page; its Done
+            clears the team, which brings the claim screen back here. */}
         <ReorderableCards
           pageKey="owner-dashboard"
           variant="vertical"

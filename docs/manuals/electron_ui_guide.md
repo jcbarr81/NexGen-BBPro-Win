@@ -169,8 +169,8 @@ The home screen for a team.
   team batting + pitching leaders.
 
 If you're a commissioner with no team claimed, the Dashboard instead shows the
-**Claim your team** screen (or a "browsing as commissioner" banner once you skip
-it).
+**Claim your team** screen. Once you skip it you browse as a team, and the
+**Acting for** banner (below, under Season) says which one.
 
 ### Season
 
@@ -197,6 +197,16 @@ The most-used sim page.
 - Simulate the **playoffs** from the Playoffs page (Sim Next Game / Sim Next
   Round / Sim to Champion). When a champion is crowned, Advance Phase unlocks
   the Offseason.
+- **Owner readiness** *(commissioner, leagues with two or more owners)* lists
+  every owner's team and what keeps it from Opening Day (an illegal roster,
+  lineups, solvency). **CPU handle it** lets the computer fix what it can; it
+  never releases anyone, so a team over its limits still needs cuts.
+  **Manage team** lets you make the moves yourself: it opens that team's Roster
+  page, and every team page (Roster, Lineup, Pitching Staff, Depth Chart,
+  Finance) works on that team until you're done. A banner across the top names
+  the team, lists what is still wrong (it updates as you fix things), and links
+  to the Roster and Lineup pages; **Done** takes you back to the Season page as
+  yourself. Your moves show in the team's transactions like any other.
 - When the finance system is on, a phase-aware **finance to-do** banner lists
   what your team needs to do this phase (budget, luxury threshold / cash,
   arbitration, qualifying offers).
