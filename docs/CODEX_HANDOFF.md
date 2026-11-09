@@ -280,9 +280,17 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-09, VERSION 8.15.1)
+## 7. Current state — where development was left off (2026-11-09, VERSION 8.15.2)
 
-**Deployed.** 8.15.1 went live on 2026-11-09 (Cloud Run revision
+**Deployed.** 8.15.2 went live on 2026-11-09 (Cloud Run revision
+`nexgen-bbpro-api-00281-wph` + Firebase Hosting; `main` pushed; no Discord
+post, owner's call): outfield coverage rule — a CF covers LF and RF, an RF
+covers LF (`utils/position_coverage.py`). Applied to the roster gates, gaps-mode
+auto-assign, CPU upkeep, depth chart / injury replacement
+(`roster_fill.covers_of`; `positions_of` stays the listed positions) and the
+lineup's "not listed at" warning. Full rebuilds pass `implied=False`, so
+league creation and the calibration fixture are unchanged; engine fielding is
+untouched. Fixed alpha-test AUS (no LF in the org). Before that, 8.15.1 went live on 2026-11-09 (Cloud Run revision
 `nexgen-bbpro-api-00280-zpb` + Firebase Hosting; `main` pushed; no Discord
 post, owner's call for an admin-only change): the Season page's Owner
 readiness list has a **Manage team** button per owner team. It sets
