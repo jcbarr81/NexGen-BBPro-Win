@@ -280,9 +280,16 @@ Two files are excluded from the default gate on purpose: `test_auto_tune_solver`
 
 ---
 
-## 7. Current state — where development was left off (2026-11-08, VERSION 8.15.0)
+## 7. Current state — where development was left off (2026-11-09, VERSION 8.15.1)
 
-**Deployed.** 8.15.0 went live on 2026-11-08 (Cloud Run revision
+**Deployed.** 8.15.1 went live on 2026-11-09 (Cloud Run revision
+`nexgen-bbpro-api-00280-zpb` + Firebase Hosting; `main` pushed; no Discord
+post, owner's call for an admin-only change): the Season page's Owner
+readiness list has a **Manage team** button per owner team. It sets
+`selectedTeamId` and opens that team's Roster page; `ActingForTeamBanner`
+(in AppShell) names the team on every page, lists its readiness issues and
+has Done. No server change (require_team_owner already lets admins through).
+Before that, 8.15.0 went live on 2026-11-08 (Cloud Run revision
 `nexgen-bbpro-api-00279-9c9` + Firebase Hosting; `main` pushed): the 2D Game
 Viewer (backlog #74 steps 2 and 3). `services/replay_plays.py` turns a stored
 replay into timed plays (`nexgen.plays/1`, served gzipped by
